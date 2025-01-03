@@ -16,12 +16,14 @@
     "reset": "rimraf node_modules **/node_modules **/dist **/.next **/next-env.d.ts pnpm-lock.yaml eliza.sqlite",
     "letsgo": "pnpm i && pnpm run dev",
     "version": "auto-changelog -p && git add CHANGELOG.md",
-    "release": "standard-version"
+    "release": "standard-version",
+    "prepare": "husky"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2",
-    "rimraf": "^5.0.5",
     "auto-changelog": "^2.4.0",
+    "concurrently": "^8.2.2",
+    "husky": "^9.1.7",
+    "rimraf": "^5.0.5",
     "standard-version": "^9.5.0"
   },
   "engines": {

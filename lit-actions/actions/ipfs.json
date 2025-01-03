@@ -3,6 +3,7 @@
     "IpfsHash": "QmZJB6qEpffgXELBdD2gwMrXMLimZnjfj7c5Q9zCoxrEN2",
     "PinSize": 69875,
     "Timestamp": "2025-01-03T10:34:38.264Z",
-    "Duration": 2.938
+    "isDuplicate": true,
+    "Duration": 4.685
   }
 }
