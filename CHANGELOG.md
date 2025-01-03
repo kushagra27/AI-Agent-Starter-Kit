@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.5.0](https://github.com/gitaalekhyapaul/AI-Agent-Starter-Kit/compare/v1.2.0...v1.5.0) (2025-01-03)
+
+
+### Features
+
+* add husky to pre-commit ([675ecdb](https://github.com/gitaalekhyapaul/AI-Agent-Starter-Kit/commit/675ecdb8bca59c55c25fc7f975a4dc018549ba6b))
+* add lit action execution example ([a99efe2](https://github.com/gitaalekhyapaul/AI-Agent-Starter-Kit/commit/a99efe269e6f77252362d55facaf6486f0a9f3f0))
+* add lit watch dev to root dev ([ef98cd3](https://github.com/gitaalekhyapaul/AI-Agent-Starter-Kit/commit/ef98cd3632bda9889de67aa3335d68fad3b7572e))
+* add local lit actions development ([92ae927](https://github.com/gitaalekhyapaul/AI-Agent-Starter-Kit/commit/92ae927f654fe9e42c977d70f066b4f224435854))
+* add timestamp to the lit action ([da84dc0](https://github.com/gitaalekhyapaul/AI-Agent-Starter-Kit/commit/da84dc05e2bda7d7b359347bd12308c0d7ee9129))
+* use workflow to create history ([8d98058](https://github.com/gitaalekhyapaul/AI-Agent-Starter-Kit/commit/8d980586b145b3f7cebd601ab62d474f438dc3b8))
+
 ## [1.4.0](https://github.com/abridged/AI-Agent-Starter-Kit/compare/v1.3.1...v1.4.0) (2024-12-23)
 
 
