@@ -1821,15 +1821,17 @@
   // src/actions/hello-action.ts
   init_buffer_shim();
   var go = async () => {
-    console.log("Lit.Auth:", Lit.Auth);
+    console.log("[action] Lit.Auth:", Lit.Auth);
     const tokenId = await Lit.Actions.pubkeyToTokenId({ publicKey });
-    console.log("tokenId:", tokenId);
+    console.log("[action] tokenId:", tokenId);
     const permittedAuthMethods = await Lit.Actions.getPermittedAuthMethods({
       tokenId
     });
     console.log("permittedAuthMethods:", permittedAuthMethods);
     const signature = await Lit.Actions.signEcdsa({ publicKey, toSign, sigName });
-    Lit.Actions.setResponse({ response: JSON.stringify({ HelloName: helloName }) });
+    Lit.Actions.setResponse({
+      response: JSON.stringify({ HelloName: helloName })
+    });
     return signature;
   };
   go();

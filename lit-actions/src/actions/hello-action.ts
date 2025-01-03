@@ -3,10 +3,10 @@
 
 const go = async () => {
   // Prints out the Lit Auth context
-  console.log("Lit.Auth:", Lit.Auth);
+  console.log("[action] Lit.Auth:", Lit.Auth);
   // Converts the public key to a token ID
   const tokenId = await Lit.Actions.pubkeyToTokenId({ publicKey });
-  console.log("tokenId:", tokenId);
+  console.log("[action] tokenId:", tokenId);
   // Gets the permitted auth methods for the token ID
   const permittedAuthMethods = await Lit.Actions.getPermittedAuthMethods({
     tokenId,

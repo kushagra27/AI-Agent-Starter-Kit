@@ -9,7 +9,8 @@
     "dev": "pnpm run build && pnpm start",
     "build": "node esbuild.js && tsc",
     "start": "node dist/index.js",
-    "lint": "prettier --write . && eslint . --fix --config .eslintrc.json"
+    "lint": "prettier --write . && eslint . --fix --config .eslintrc.json",
+    "watch": "node bin/build-dev"
   },
   "dependencies": {
     "buffer": "^6.0.3",

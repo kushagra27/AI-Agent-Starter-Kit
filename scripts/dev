@@ -16,6 +16,13 @@ const { result } = concurrently([
         prefix: "client",
         prefixColor: "green",
         handleInput: true
+    },
+    {
+        command: "pnpm run dev:lit-actions",
+        name: "lit-actions",
+        prefix: "lit-actions",
+        prefixColor: "yellow",
+        handleInput: true
     }
 ]);
 

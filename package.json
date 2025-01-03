@@ -4,10 +4,11 @@
   "private": true,
   "scripts": {
     "preinstall": "npx only-allow pnpm",
-    "predev": "pnpm --filter client run predev && pnpm --filter server run predev",
+    "predev": "pnpm --filter client run predev && pnpm --filter server run predev && pnpm --filter lit-actions run predev",
     "dev": "node scripts/dev",
     "dev:client": "pnpm --filter client run dev",
     "dev:server": "pnpm --filter server run dev",
+    "dev:lit-actions": "pnpm --filter lit-actions run watch",
     "build": "pnpm -r run build",
     "start": "pnpm -r run start",
     "lint": "pnpm -r run lint",

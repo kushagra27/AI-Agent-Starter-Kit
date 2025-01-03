@@ -1,5 +1,4 @@
 import { ethers as Ethers } from "ethers";
-import { Buffer } from "buffer";
 
 declare global {
   export declare namespace Lit {
