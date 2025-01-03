@@ -16,7 +16,7 @@ const go = async () => {
   const signature = await Lit.Actions.signEcdsa({ publicKey, toSign, sigName });
   // Sets the response to the Lit Actions context
   Lit.Actions.setResponse({
-    response: JSON.stringify({ HelloName: helloName }),
+    response: JSON.stringify({ HelloName: helloName, timestamp: Date.now().toString() }),
   });
   // Returns the signature
   return signature;
