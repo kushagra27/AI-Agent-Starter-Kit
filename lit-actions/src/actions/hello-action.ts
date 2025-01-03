@@ -11,7 +11,7 @@ const go = async () => {
   const permittedAuthMethods = await Lit.Actions.getPermittedAuthMethods({
     tokenId,
   });
-  console.log("permittedAuthMethods:", permittedAuthMethods);
+  console.log("[action] permittedAuthMethods:", permittedAuthMethods);
   // Signs the ECDSA signature
   const signature = await Lit.Actions.signEcdsa({ publicKey, toSign, sigName });
   // Sets the response to the Lit Actions context

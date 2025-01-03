@@ -11,6 +11,10 @@ import {
 import fs from "fs";
 import axios, { AxiosResponse, isAxiosError } from "axios";
 import { parse as jsoncParse } from "jsonc-parser";
+import path, { resolve } from "path";
+import { keccak256, getBytes, toUtf8Bytes } from "ethers";
+
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
 export class TelegramService extends BaseService {
   private static instance: TelegramService;
   private bot: Bot;
@@ -50,15 +54,25 @@ export class TelegramService extends BaseService {
   }
 
   public async start(): Promise<void> {
+    const client = axios.create({
+      baseURL: getCollablandApiUrl(),
+      headers: {
+        "X-API-KEY": process.env.COLLABLAND_API_KEY || "",
+        "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN || "",
+        "Content-Type": "application/json",
+      },
+      timeout: 5 * 60 * 1000,
+    });
     try {
       //all command descriptions can be added here
       this.bot.api.setMyCommands([
         {
           command: "start",
-          description: "Add hello world functionality to your bot",
+          description: "Add any hello world functionality to your bot",
         },
         { command: "mint", description: "Mint a token on Wow.xyz" },
         { command: "eliza", description: "Talk to the AI agent" },
+        { command: "lit", description: "Execute a Lit action" },
       ]);
       // all command handlers can be registered here
       this.bot.command("start", (ctx) => ctx.reply("Hello!"));
@@ -76,32 +90,22 @@ export class TelegramService extends BaseService {
           ) as TokenMetadata;
           console.log("TokenInfoToMint", tokenInfo);
           console.log("Hitting Collab.Land APIs to mint token...");
-          const { data: _tokenData } = await axios.post<
+          const { data: _tokenData } = await client.post<
             AnyType,
             AxiosResponse<MintResponse>
-          >(
-            `${getCollablandApiUrl()}/telegrambot/evm/mint?chainId=8453`,
-            {
-              name: tokenInfo.name,
-              symbol: tokenInfo.symbol,
-              metadata: {
-                description: tokenInfo.description ?? "",
-                website_link: tokenInfo.websiteLink ?? "",
-                twitter: tokenInfo.twitter ?? "",
-                discord: tokenInfo.discord ?? "",
-                telegram: tokenInfo.telegram ?? "",
-                media: tokenInfo.image ?? "",
-                nsfw: tokenInfo.nsfw ?? false,
-              },
+          >(`/telegrambot/evm/mint?chainId=8453`, {
+            name: tokenInfo.name,
+            symbol: tokenInfo.symbol,
+            metadata: {
+              description: tokenInfo.description ?? "",
+              website_link: tokenInfo.websiteLink ?? "",
+              twitter: tokenInfo.twitter ?? "",
+              discord: tokenInfo.discord ?? "",
+              telegram: tokenInfo.telegram ?? "",
+              media: tokenInfo.image ?? "",
+              nsfw: tokenInfo.nsfw ?? false,
             },
-            {
-              headers: {
-                "X-API-KEY": process.env.COLLABLAND_API_KEY || "",
-                "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN || "",
-                "Content-Type": "application/json",
-              },
-            }
-          );
+          });
           console.log("Mint response from Collab.Land:");
           console.dir(_tokenData, { depth: null });
           const tokenData = _tokenData.response.contract.fungible;
@@ -132,6 +136,110 @@ You can view the token page below (it takes a few minutes to be visible)`,
             console.error("Failed to mint token:", error);
           }
           ctx.reply("Failed to mint token");
+        }
+      });
+      this.bot.command("lit", async (ctx) => {
+        try {
+          const action = ctx.match;
+          console.log("action:", action);
+          const actionHashes = JSON.parse(
+            (
+              await fs.readFileSync(
+                resolve(
+                  __dirname,
+                  "..",
+                  "..",
+                  "..",
+                  "lit-actions",
+                  "actions",
+                  `ipfs.json`
+                )
+              )
+            ).toString()
+          );
+          console.log("actionHashes:", actionHashes);
+          const actionHash = actionHashes[action];
+          console.log("actionHash:", actionHash);
+          if (!actionHash) {
+            ctx.reply("Action not found");
+            return;
+          }
+          // ! NOTE: The message to sign can be any normal message, or raw TX
+          // ! In order to sign EIP-191 message, you need to encode it properly, Lit protocol does raw signatures
+          const messageToSign =
+            ctx.from?.username ?? ctx.from?.first_name ?? "";
+          const messageToSignDigest = keccak256(toUtf8Bytes(messageToSign));
+          // ! NOTE: You can send any jsParams you want here, it depends on your Lit action code
+          const jsParams = {
+            helloName: messageToSign,
+            toSign: Array.from(getBytes(messageToSignDigest)),
+          };
+          // ! NOTE: You can change the chainId to any chain you want to execute the action on
+          const chainId = 8453;
+          await ctx.reply(
+            "Executing action..." +
+              `\n\nAction Hash: <code>${actionHash.IpfsHash}</code>\n\nParams:\n<pre lang="json"><code>${JSON.stringify(
+                jsParams,
+                null,
+                2
+              )}</code></pre>`,
+            {
+              parse_mode: "HTML",
+            }
+          );
+          const { data } = await client.post(
+            `/telegrambot/executeLitActionUsingPKP?chainId=${chainId}`,
+            {
+              actionIpfs: actionHash.IpfsHash,
+              actionJsParams: jsParams,
+            }
+          );
+          console.log("Action executed on Lit Nodes 🔥");
+          console.log("Action:", actionHash.IpfsHash);
+          console.log("Result:", data);
+          ctx.reply(
+            `Action executed on Lit Nodes 🔥\n\n` +
+              `Action: <code>${actionHash.IpfsHash}</code>\n` +
+              `Result:\n<pre lang="json"><code>${JSON.stringify(
+                data,
+                null,
+                2
+              )}</code></pre>`,
+            {
+              parse_mode: "HTML",
+            }
+          );
+        } catch (error) {
+          if (isAxiosError(error)) {
+            console.error(
+              "Failed to execute Lit action:",
+              error.response?.data
+            );
+            ctx.reply(
+              "Failed to execute Lit action" +
+                `\n\nError: <pre lang="json"><code>${JSON.stringify(
+                  error.response?.data,
+                  null,
+                  2
+                )}</code></pre>`,
+              {
+                parse_mode: "HTML",
+              }
+            );
+          } else {
+            console.error("Failed to execute Lit action:", error);
+            ctx.reply(
+              "Failed to execute Lit action" +
+                `\n\nError: <pre lang="json"><code>${JSON.stringify(
+                  error?.message,
+                  null,
+                  2
+                )}</code></pre>`,
+              {
+                parse_mode: "HTML",
+              }
+            );
+          }
         }
       });
     } catch (error) {

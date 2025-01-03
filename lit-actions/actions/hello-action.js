@@ -1827,7 +1827,7 @@
     const permittedAuthMethods = await Lit.Actions.getPermittedAuthMethods({
       tokenId
     });
-    console.log("permittedAuthMethods:", permittedAuthMethods);
+    console.log("[action] permittedAuthMethods:", permittedAuthMethods);
     const signature = await Lit.Actions.signEcdsa({ publicKey, toSign, sigName });
     Lit.Actions.setResponse({
       response: JSON.stringify({ HelloName: helloName })
