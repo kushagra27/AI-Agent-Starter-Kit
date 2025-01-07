@@ -1,0 +1,35 @@
+#! /usr/bin/env node
+import { config } from "dotenv";
+import { join } from "path";
+import { tunnelmole } from "tunnelmole";
+
+const __dirname = new URL(".", import.meta.url).pathname;
+
+config({
+  path: join(__dirname, "..", ".env"),
+});
+
+const main = async () => {
+  const port = process.env.TUNNEL_PORT || 3000;
+  console.log(`Waiting 5 seconds for Next.js app to start...`);
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+  console.log(`Starting front-end tunnel on PORT ${port}...`);
+
+  const url = await tunnelmole({
+    port: Number(port),
+    domain: process.env.TUNNEL_DOMAIN,
+  });
+  console.log(`[INFO] Visit ${url} to view your Next.js app`);
+
+  process.on("SIGINT", () => {
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    process.exit(0);
+  });
+};
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(0);
+});
