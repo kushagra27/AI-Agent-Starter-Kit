@@ -2,16 +2,21 @@ import { Router, Request, Response } from "express";
 import axios, { AxiosError } from "axios";
 import crypto from "crypto";
 import { NgrokService } from "../services/ngrok.service.js";
+import { CacheService } from "../services/cache.service.js";
 
 const router = Router();
 
+interface TwitterCacheData {
+  verifier: string;
+  successUri?: string;
+}
+
 /**
- * In-memory storage for PKCE code verifiers
+ * Cache for PKCE code verifiers and success URIs
  * - Key: state parameter (prevents CSRF)
- * - Value: code verifier (proves client identity)
- * Note: In production, consider using Redis for distributed systems
+ * - Value: code verifier (proves client identity) and success URI
+ * TTL: 10 minutes
  */
-const codeVerifiers = new Map<string, string>();
 
 /**
  * Generates a PKCE code verifier
@@ -55,16 +60,20 @@ function generateCodeChallenge(verifier: string) {
  * - Creates PKCE verifier/challenge pair
  * - Constructs Twitter authorization URL
  */
-router.post("/init", async (_req: Request, res: Response) => {
+router.post("/init", async (req: Request, res: Response) => {
   try {
     const ngrokURL = await NgrokService.getInstance().getUrl();
+    const { success_uri } = req.body;
     // Generate CSRF protection state
     const state = crypto.randomBytes(16).toString("hex");
 
     // Generate and store PKCE parameters
     const codeVerifier = generateCodeVerifier();
     const codeChallenge = generateCodeChallenge(codeVerifier);
-    codeVerifiers.set(state, codeVerifier);
+    CacheService.getInstance().set<TwitterCacheData>(state, {
+      verifier: codeVerifier,
+      successUri: success_uri,
+    });
 
     // Build Twitter OAuth URL with required parameters
     const authUrl = new URL("https://twitter.com/i/oauth2/authorize");
@@ -97,10 +106,13 @@ router.get("/callback", async (req: Request, res: Response) => {
     const { code, state } = req.query;
 
     // Verify state matches and get stored verifier
-    const codeVerifier = codeVerifiers.get(state as string);
-    if (!codeVerifier) {
+    const stored = CacheService.getInstance().get<TwitterCacheData>(
+      state as string
+    );
+    if (!stored) {
       throw new Error("Invalid state parameter");
     }
+    const { verifier: codeVerifier, successUri } = stored;
 
     // Create basic auth header from client credentials
     const basicAuth = Buffer.from(
@@ -128,12 +140,13 @@ router.get("/callback", async (req: Request, res: Response) => {
     );
 
     // Clean up stored verifier
-    codeVerifiers.delete(state as string);
+    CacheService.getInstance().del(state as string);
 
-    // Redirect to success
+    // Redirect to success_uri if provided, otherwise use default
+    const redirectUrl = successUri || `/auth/twitter/success`;
     return res.redirect(
       302,
-      `/auth/twitter/success?token=${tokenResponse.data.access_token}`
+      `${redirectUrl}?token=${tokenResponse.data.access_token}`
     );
   } catch (error) {
     console.error("[Twitter Callback] Error:", error);

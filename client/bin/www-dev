@@ -13,6 +13,9 @@ const { result } = concurrently(
       command: "pnpm run next-dev",
       name: "next",
       prefixColor: "green",
+      env: {
+        NEXT_PROXY_LOGGING: 1,
+      },
     },
     {
       command: "pnpm run www-tunnel",

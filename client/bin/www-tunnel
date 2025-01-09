@@ -2,12 +2,34 @@
 import { config } from "dotenv";
 import { join } from "path";
 import { tunnelmole } from "tunnelmole";
+import fs from "fs/promises";
 
 const __dirname = new URL(".", import.meta.url).pathname;
+const ENV_PATH = join(__dirname, "..", ".env");
 
 config({
-  path: join(__dirname, "..", ".env"),
+  path: ENV_PATH,
 });
+
+const updateEnvFile = async (tunnelUrl) => {
+  try {
+    const envContent = await fs.readFile(ENV_PATH, "utf-8");
+    const hasHostname = envContent.includes("NEXT_PUBLIC_HOSTNAME=");
+
+    if (hasHostname) {
+      const newContent = envContent.replace(
+        /NEXT_PUBLIC_HOSTNAME=.*/,
+        `NEXT_PUBLIC_HOSTNAME=${tunnelUrl}`
+      );
+      await fs.writeFile(ENV_PATH, newContent);
+    } else {
+      await fs.appendFile(ENV_PATH, `\nNEXT_PUBLIC_HOSTNAME=${tunnelUrl}`);
+    }
+    console.log(`[INFO] Updated NEXT_PUBLIC_HOSTNAME in .env to ${tunnelUrl}`);
+  } catch (err) {
+    console.error("[ERROR] Failed to update .env file:", err);
+  }
+};
 
 const main = async () => {
   const port = process.env.TUNNEL_PORT || 3000;
@@ -20,6 +42,8 @@ const main = async () => {
     domain: process.env.TUNNEL_DOMAIN,
   });
   console.log(`[INFO] Visit ${url} to view your Next.js app`);
+
+  await updateEnvFile(url);
 
   process.on("SIGINT", () => {
     process.exit(0);
