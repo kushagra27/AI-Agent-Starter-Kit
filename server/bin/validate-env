@@ -42,6 +42,22 @@ const ENV_HINTS = {
     "Enter your Discord client ID, you can get it from Discord Developer Portal, go to https://discord.com/developers/applications to create one",
   DISCORD_CLIENT_SECRET:
     "Enter your Discord client secret, you can get it from Discord Developer Portal, go to https://discord.com/developers/applications to create one",
+  GITHUB_CLIENT_ID:
+    "Enter your GitHub client ID, you can get it from GitHub Developer Settings, go to https://github.com/settings/developers to create one",
+  GITHUB_CLIENT_SECRET:
+    "Enter your GitHub client secret, you can get it from GitHub Developer Settings, go to https://github.com/settings/developers to create one",
+  TWITTER_USERNAME:
+    "Enter your Twitter username, you can get it from Twitter Developer Portal, go to https://developer.twitter.com/en/portal/dashboard to create one",
+  TWITTER_PASSWORD:
+    "Enter your Twitter password, you can get it from Twitter Developer Portal, go to https://developer.twitter.com/en/portal/dashboard to create one",
+  TWITTER_API_KEY:
+    "Enter your Twitter API key, you can get it from Twitter Developer Portal, go to https://developer.twitter.com/en/portal/dashboard to create one",
+  TWITTER_API_SECRET_KEY:
+    "Enter your Twitter API secret key, you can get it from Twitter Developer Portal, go to https://developer.twitter.com/en/portal/dashboard to create one",
+  TWITTER_ACCESS_TOKEN:
+    "Enter your Twitter access token, you can get it from Twitter Developer Portal, go to https://developer.twitter.com/en/portal/dashboard to create one",
+  TWITTER_ACCESS_TOKEN_SECRET:
+    "Enter your Twitter access token secret, you can get it from Twitter Developer Portal, go to https://developer.twitter.com/en/portal/dashboard to create one",
   // Add more hints as needed from .env.example
 };
 
