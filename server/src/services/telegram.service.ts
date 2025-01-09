@@ -13,6 +13,8 @@ import axios, { AxiosResponse, isAxiosError } from "axios";
 import { parse as jsoncParse } from "jsonc-parser";
 import path, { resolve } from "path";
 import { keccak256, getBytes, toUtf8Bytes } from "ethers";
+import { TwitterService } from "./twitter.service.js";
+import { NgrokService } from "./ngrok.service.js";
 
 const __dirname = path.dirname(new URL(import.meta.url).pathname);
 export class TelegramService extends BaseService {
@@ -82,6 +84,7 @@ export class TelegramService extends BaseService {
       await this.elizaService.start();
 
       this.bot.command("mint", async (ctx) => {
+        const ngrokURL = await NgrokService.getInstance().getUrl();
         try {
           ctx.reply("Minting your token...");
           const tokenPath = getTokenMetadataPath();
@@ -109,7 +112,7 @@ export class TelegramService extends BaseService {
           console.log("Mint response from Collab.Land:");
           console.dir(_tokenData, { depth: null });
           const tokenData = _tokenData.response.contract.fungible;
-          ctx.reply(
+          await ctx.reply(
             `Your token has been minted on wow.xyz 🥳
 Token details:
 <pre><code class="language-json">${JSON.stringify(tokenData, null, 2)}</code></pre>
@@ -129,6 +132,49 @@ You can view the token page below (it takes a few minutes to be visible)`,
               parse_mode: "HTML",
             }
           );
+          const twitterClient = await TwitterService.getInstance().getScraper();
+          const twitterBotInfo = await twitterClient.me();
+          await ctx.reply(
+            `🐦 Posting a tweet about the new token...\n\n` +
+              `Twitter account details:\n<pre lang="json"><code>${JSON.stringify(
+                twitterBotInfo,
+                null,
+                2
+              )}</code></pre>`,
+            {
+              parse_mode: "HTML",
+            }
+          );
+          const claimURL = `${process.env.NEXT_PUBLIC_HOSTNAME}/claim/${tokenData.address}`;
+          const botUsername = twitterBotInfo?.username;
+          console.log("botUsername:", botUsername);
+          console.log("claimURL:", claimURL);
+          const slug =
+            Buffer.from(claimURL).toString("base64url") +
+            ":" +
+            Buffer.from(botUsername!).toString("base64url");
+          console.log("slug:", slug);
+          const cardURL = `${ngrokURL}/auth/twitter/card/${slug}/index.html`;
+          console.log("cardURL:", cardURL);
+          const twtRes = await twitterClient.sendTweet(
+            `I just minted a token on Base using Wow!\nThe ticker is $${tokenData.symbol}\nClaim early alpha here: ${cardURL}`
+          );
+          if (twtRes.ok) {
+            const tweetId = (await twtRes.json()) as AnyType;
+            console.log("Tweet posted successfully:", tweetId);
+            const tweetURL = `https://twitter.com/${twitterBotInfo?.username}/status/${tweetId?.data?.create_tweet?.tweet_results?.result?.rest_id}`;
+            console.log("Tweet URL:", tweetURL);
+            await ctx.reply(
+              `Tweet posted successfully!\n\n` +
+                `🎉 Tweet details: ${tweetURL}`,
+              {
+                parse_mode: "HTML",
+              }
+            );
+          } else {
+            console.error("Failed to post tweet:", await twtRes.json());
+            await ctx.reply("Failed to post tweet");
+          }
         } catch (error) {
           if (isAxiosError(error)) {
             console.error("Failed to mint token:", error.response?.data);

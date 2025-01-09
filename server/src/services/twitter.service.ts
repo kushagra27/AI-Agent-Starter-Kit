@@ -1,5 +1,5 @@
 import { BaseService } from "./base.service.js";
-import { Scraper } from "agent-twitter-client";
+import { Profile, Scraper } from "agent-twitter-client";
 import fs from "fs/promises";
 import { join, dirname } from "path";
 
@@ -16,6 +16,7 @@ export class TwitterService extends BaseService {
   private static instance: TwitterService;
   private scraper: Scraper | null = null;
   private isConnected: boolean = false;
+  public me: Profile | undefined = undefined;
 
   private constructor() {
     super();
@@ -50,6 +51,7 @@ export class TwitterService extends BaseService {
       if (!connected) {
         throw new Error("Failed to login with existing cookies.");
       }
+      this.me = await this.scraper.me();
       this.isConnected = true;
     } catch (error) {
       console.error("[TwitterService] Error:", error);

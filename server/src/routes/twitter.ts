@@ -3,6 +3,7 @@ import axios, { AxiosError } from "axios";
 import crypto from "crypto";
 import { NgrokService } from "../services/ngrok.service.js";
 import { CacheService } from "../services/cache.service.js";
+import { getCardHTML } from "../utils.js";
 
 const router = Router();
 
@@ -214,6 +215,21 @@ router.get("/success", async (req: Request, res: Response) => {
       error: "Failed to fetch profile information",
     });
   }
+});
+
+router.get("/card/:slug/index.html", (req: Request, res: Response) => {
+  //The slug is a string of base64<claimURL>:base64<botUsername>
+  const slug = req.params.slug;
+  const claimURLBase64 = slug.split(":")[0];
+  const claimURL = Buffer.from(claimURLBase64, "base64").toString("ascii");
+  const botUsernameBase64 = slug.split(":")[1];
+  const botUsername = Buffer.from(botUsernameBase64, "base64").toString(
+    "ascii"
+  );
+  console.log("Claim URL:", claimURL);
+  console.log("Bot Username:", botUsername);
+  res.setHeader("Content-Type", "text/html");
+  res.send(getCardHTML(botUsername, claimURL));
 });
 
 export default router;

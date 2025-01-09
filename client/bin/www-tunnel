@@ -6,14 +6,18 @@ import fs from "fs/promises";
 
 const __dirname = new URL(".", import.meta.url).pathname;
 const ENV_PATH = join(__dirname, "..", ".env");
+const ROOT_ENV_PATH = join(__dirname, "..", "..", ".env");
 
 config({
   path: ENV_PATH,
 });
 
-const updateEnvFile = async (tunnelUrl) => {
+const updateEnvFile = async (tunnelUrl, envPath = ENV_PATH) => {
   try {
-    const envContent = await fs.readFile(ENV_PATH, "utf-8");
+    console.log(
+      `[INFO] Updating tunnelmole URL in .env (Location: ${envPath})...`
+    );
+    const envContent = await fs.readFile(envPath, "utf-8");
     const hasHostname = envContent.includes("NEXT_PUBLIC_HOSTNAME=");
 
     if (hasHostname) {
@@ -21,11 +25,13 @@ const updateEnvFile = async (tunnelUrl) => {
         /NEXT_PUBLIC_HOSTNAME=.*/,
         `NEXT_PUBLIC_HOSTNAME=${tunnelUrl}`
       );
-      await fs.writeFile(ENV_PATH, newContent);
+      await fs.writeFile(envPath, newContent);
     } else {
-      await fs.appendFile(ENV_PATH, `\nNEXT_PUBLIC_HOSTNAME=${tunnelUrl}`);
+      await fs.appendFile(envPath, `\nNEXT_PUBLIC_HOSTNAME=${tunnelUrl}`);
     }
-    console.log(`[INFO] Updated NEXT_PUBLIC_HOSTNAME in .env to ${tunnelUrl}`);
+    console.log(
+      `[INFO] Updated NEXT_PUBLIC_HOSTNAME in .env (Location: ${envPath}) to ${tunnelUrl}`
+    );
   } catch (err) {
     console.error("[ERROR] Failed to update .env file:", err);
   }
@@ -44,6 +50,7 @@ const main = async () => {
   console.log(`[INFO] Visit ${url} to view your Next.js app`);
 
   await updateEnvFile(url);
+  await updateEnvFile(url, ROOT_ENV_PATH);
 
   process.on("SIGINT", () => {
     process.exit(0);

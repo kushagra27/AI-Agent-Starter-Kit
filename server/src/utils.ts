@@ -56,3 +56,28 @@ export const getCollablandApiUrl = () => {
     process.env.COLLABLAND_API_URL || "https://api-qa.collab.land/accountkit/v1"
   );
 };
+
+export const getCardHTML = (botUsername: string, claimURL: string) => {
+  return `<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="twitter:card" content="player" />
+	<meta name="twitter:site" content="@${botUsername}" />
+	<meta name="twitter:title" content="AI Agent Starter Kit" />
+	<meta name="twitter:description"
+		content="This is a sample card for claiming airdrops with the AI Agent Starter Kit" />
+	<meta name="twitter:image" content="https://assets.collab.land/collabland-logo.png" />
+	<meta name="twitter:player" content="${claimURL}" />
+	<meta name="twitter:player:width" content="480" />
+	<meta name="twitter:player:height" content="480" />
+</head>
+
+<body>
+	<title>Claim token airdrop.</title>
+</body>
+
+</html>`;
+};

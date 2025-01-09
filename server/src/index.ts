@@ -96,7 +96,7 @@ app.listen(port, async () => {
 
     const twitterInstance = TwitterService.getInstance();
     await twitterInstance.start();
-    const me = await twitterInstance.getScraper().me();
+    const me = await twitterInstance.me;
     services.push(twitterInstance);
     if (!me) {
       throw new Error("Twitter account not found");
