@@ -7,11 +7,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "nextjs.org",
-      },
-      {
-        protocol: "https",
-        hostname: "pbs.twimg.com",
+        hostname: "**",
       },
     ],
   },
