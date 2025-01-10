@@ -47,6 +47,8 @@ export default function SuccessPage() {
         if (!token) {
           throw new Error("No token provided");
         }
+        // Store token in session storage
+        sessionStorage.setItem("twitter_token", token);
 
         const response = await fetch(
           "/api/auth/twitter/success?token=" + token

@@ -7,17 +7,52 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { TwitterLogin } from "@/app/_components/TwitterLogin";
 import { useEffect, useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ClaimPage() {
   const { tokenId } = useParams();
+  const router = useRouter();
   const [hostname, setHostname] = useState("");
+  const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
-    setHostname(window.location.origin);
-  }, []);
+    const init = async () => {
+      setHostname(window.location.origin);
+      // Check if token exists in session storage
+      const token = sessionStorage.getItem("twitter_token");
+      if (token) {
+        // Redirect to success page if token exists
+        router.push(`/claim/${tokenId}/success?token=${token}`);
+      } else {
+        setIsChecking(false);
+      }
+    };
+    init();
+  }, [tokenId, router]);
+
+  if (isChecking) {
+    return (
+      <div className="container mx-auto flex items-center justify-center min-h-screen p-4 bg-white">
+        <Card className="w-full max-w-md bg-white border-gray-200">
+          <CardHeader className="bg-white">
+            <Skeleton className="h-8 w-[200px] mb-2" />
+            <Skeleton className="h-4 w-[150px]" />
+          </CardHeader>
+          <CardContent className="bg-white">
+            <div className="space-y-4">
+              <Skeleton className="h-10 w-full" />
+              <div className="text-center text-sm text-gray-500">
+                Checking authentication status...
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto flex items-center justify-center min-h-screen p-4 bg-white">
