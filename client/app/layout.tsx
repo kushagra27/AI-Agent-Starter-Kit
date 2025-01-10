@@ -1,12 +1,11 @@
-import { Inter } from "next/font/google";
 import "@/styles/globals.css";
-import { ThemeProvider } from "next-themes";
+import { Inter } from "next/font/google";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
-  title: "Your App",
-  description: "Your app description",
+  title: "Collab.Land Starter Kit",
+  description: "Get started with Collab.Land",
 };
 
 export default function RootLayout({
@@ -15,18 +14,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="light"
-          enableSystem={false}
-          forcedTheme="light"
-        >
-          <main className="bg-background text-foreground">
-            {children}
-          </main>
-        </ThemeProvider>
+    <html lang="en" className="light">
+      <body className={`${inter.className} bg-white min-h-screen`}>
+        {children}
       </body>
     </html>
   );

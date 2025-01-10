@@ -20,9 +20,9 @@ export default function ClaimPage() {
   }, []);
 
   return (
-    <div className="container mx-auto flex items-center justify-center min-h-screen p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
+    <div className="container mx-auto flex items-center justify-center min-h-screen p-4 bg-white">
+      <Card className="w-full max-w-md bg-white border-gray-200">
+        <CardHeader className="bg-white">
           <CardTitle>Claim Wow.XYZ Airdrop</CardTitle>
           <CardDescription>
             Token:{" "}
@@ -36,7 +36,7 @@ export default function ClaimPage() {
             </a>
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="bg-white">
           <TwitterLogin
             successUri={
               hostname

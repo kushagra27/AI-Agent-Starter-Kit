@@ -44,9 +44,7 @@ export default function SuccessPage() {
           throw new Error("No token provided");
         }
 
-        const response = await fetch(
-          "/api/auth/twitter/success?token=" + token
-        );
+        const response = await fetch("/api/auth/twitter/success?token=" + token);
 
         if (!response.ok) {
           throw new Error("Failed to fetch profile");
@@ -65,9 +63,9 @@ export default function SuccessPage() {
   }, [searchParams]);
 
   return (
-    <div className="container mx-auto flex items-center justify-center min-h-screen p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
+    <div className="container mx-auto flex items-center justify-center min-h-screen p-4 bg-white">
+      <Card className="w-full max-w-md bg-white border-gray-200">
+        <CardHeader className="bg-white">
           <CardTitle>Twitter Authentication Success</CardTitle>
           <CardDescription>
             Wow.XYZ Token:{" "}
@@ -81,11 +79,11 @@ export default function SuccessPage() {
             </a>
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="bg-white">
           {error ? (
             <div className="text-red-500">{error}</div>
           ) : isLoading ? (
-            <Card className="border-2">
+            <Card className="border-2 bg-white">
               <CardContent className="pt-6">
                 <div className="space-y-6">
                   <div className="text-sm text-center text-gray-500">
@@ -110,7 +108,7 @@ export default function SuccessPage() {
               </CardContent>
             </Card>
           ) : profile ? (
-            <Card className="border-2">
+            <Card className="border-2 bg-white">
               <CardContent className="pt-6">
                 <div className="space-y-4">
                   <div className="flex items-center space-x-4">

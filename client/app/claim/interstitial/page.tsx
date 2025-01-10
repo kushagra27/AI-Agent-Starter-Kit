@@ -20,7 +20,6 @@ export default function InterstitialPage() {
         },
         "*"
       );
-      // Only close if successUri was provided
       if (successUri) {
         window.close();
       }
@@ -34,10 +33,10 @@ export default function InterstitialPage() {
   }, [searchParams]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen">
+    <div className="flex items-center justify-center min-h-screen bg-white">
       <div className="text-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-current border-t-transparent mx-auto mb-4" />
-        <p className="text-sm text-gray-500">Completing authentication...</p>
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#1DA1F2] border-t-transparent mx-auto mb-4" />
+        <p className="text-sm text-gray-600">Completing authentication...</p>
       </div>
     </div>
   );
