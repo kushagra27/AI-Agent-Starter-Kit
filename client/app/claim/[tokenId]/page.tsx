@@ -44,8 +44,9 @@ export default function ClaimPage() {
           <CardContent className="bg-white">
             <div className="space-y-4">
               <Skeleton className="h-10 w-full" />
-              <div className="text-center text-sm text-gray-500">
-                Checking authentication status...
+              <div className="flex flex-col items-center justify-center space-y-3">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#1DA1F2] border-t-transparent" />
+                <div className="text-sm text-gray-500">Loading...</div>
               </div>
             </div>
           </CardContent>

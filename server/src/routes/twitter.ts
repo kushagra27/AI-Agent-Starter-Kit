@@ -288,4 +288,73 @@ router.get("/getAccountAddress", async (req: Request, res: Response) => {
   }
 });
 
+router.get(
+  "/sendAirdrop/:tokenId/:recipient",
+  async (req: Request, res: Response) => {
+    try {
+      const { tokenId, recipient } = req.params;
+      console.log(
+        `[Twitter Success] Sending airdrop for token ${tokenId} to ${recipient}`
+      );
+
+      // Mock a delay to simulate blockchain transaction
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Generate a mock transaction hash (40 hex characters)
+      const mockTxHash =
+        "0x" +
+        Array.from({ length: 64 }, () =>
+          Math.floor(Math.random() * 16).toString(16)
+        ).join("");
+
+      console.log("[Twitter Success] Airdrop sent with tx hash:", mockTxHash);
+
+      res.json({
+        success: true,
+        txHash: mockTxHash,
+      });
+    } catch (error) {
+      console.error("[Twitter Success] Error:", error);
+      if (error instanceof AxiosError) {
+        console.error("[Twitter Success] Response:", error.response?.data);
+      }
+      res.status(400).json({
+        success: false,
+        error: "Failed to send airdrop",
+      });
+    }
+  }
+);
+
+router.post("/tweet", async (req: Request, res: Response) => {
+  try {
+    const { message } = req.body;
+    console.log("[Twitter Success] Sending tweet:", message);
+
+    // Mock API call to Twitter
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    // Generate a mock tweet ID and construct URL
+    const mockTweetId = Date.now().toString();
+    const tweetUrl = `https://twitter.com/i/web/status/${mockTweetId}`;
+
+    console.log("[Twitter Success] Tweet sent successfully:", tweetUrl);
+
+    res.json({
+      success: true,
+      tweetId: mockTweetId,
+      tweetUrl,
+    });
+  } catch (error) {
+    console.error("[Twitter Success] Error:", error);
+    if (error instanceof AxiosError) {
+      console.error("[Twitter Success] Response:", error.response?.data);
+    }
+    res.status(400).json({
+      success: false,
+      error: "Failed to send tweet",
+    });
+  }
+});
+
 export default router;
