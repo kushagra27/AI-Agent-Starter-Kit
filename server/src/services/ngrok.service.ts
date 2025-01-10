@@ -1,4 +1,4 @@
-import { AnyType } from "@/utils.js";
+import { AnyType } from "../utils.js";
 import { BaseService } from "./base.service.js";
 import { forward, Listener } from "@ngrok/ngrok";
 
