@@ -84,7 +84,7 @@ router.post("/init", async (req: Request, res: Response) => {
       response_type: "code", // OAuth 2.0 auth code flow
       client_id: process.env.TWITTER_CLIENT_ID!, // Your app's client ID
       redirect_uri: `${ngrokURL}/auth/twitter/callback`, // Must match registered URL
-      scope: "tweet.read users.read offline.access", // Requested permissions
+      scope: "tweet.read users.read offline.access tweet.write", // Requested permissions
       state: state, // CSRF token
       code_challenge: codeChallenge, // PKCE challenge
       code_challenge_method: "S256",

@@ -46,7 +46,9 @@ export default function ClaimPage() {
               <Skeleton className="h-10 w-full" />
               <div className="flex flex-col items-center justify-center space-y-3">
                 <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#1DA1F2] border-t-transparent" />
-                <div className="text-sm text-gray-500">Loading...</div>
+                <div className="text-sm text-gray-500">
+                  Loading your experience...
+                </div>
               </div>
             </div>
           </CardContent>
