@@ -42,12 +42,10 @@ export function TwitterLogin({ successUri }: TwitterLoginProps) {
         },
         body: JSON.stringify({
           success_uri: successUri
-            ? `${hostname}/claim/interstitial?successUri=${encodeURIComponent(
+            ? `${hostname ?? process.env.NEXT_PUBLIC_HOSTNAME}/claim/interstitial?successUri=${encodeURIComponent(
                 successUri || ""
               )}`
-            : `${process.env.NEXT_PUBLIC_HOSTNAME}/claim/interstitial?successUri=${encodeURIComponent(
-                successUri || ""
-              )}`,
+            : ``,
         }),
       });
 
