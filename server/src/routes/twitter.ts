@@ -225,12 +225,17 @@ router.get("/card/:slug/index.html", (req: Request, res: Response) => {
   //The slug is a string of base64<claimURL>:base64<botUsername>
   const slug = req.params.slug;
   const claimURLBase64 = slug.split(":")[0];
-  const claimURL = Buffer.from(claimURLBase64, "base64").toString("ascii");
+  let claimURL = Buffer.from(claimURLBase64, "base64").toString("ascii");
+  console.log("Claim URL:", claimURL);
+  // replace the domain name of the claimURL with the current NEXT_PUBLIC_HOSTNAME
+  const _claimURL = new URL(claimURL);
+  _claimURL.hostname = process.env.NEXT_PUBLIC_HOSTNAME!;
+  claimURL = _claimURL.toString();
+  console.log("Updated Claim URL:", claimURL);
   const botUsernameBase64 = slug.split(":")[1];
   const botUsername = Buffer.from(botUsernameBase64, "base64").toString(
     "ascii"
   );
-  console.log("Claim URL:", claimURL);
   console.log("Bot Username:", botUsername);
   res.setHeader("Content-Type", "text/html");
   res.send(getCardHTML(botUsername, claimURL));
