@@ -65,6 +65,7 @@ router.post("/init", async (req: Request, res: Response) => {
   try {
     const ngrokURL = await NgrokService.getInstance().getUrl();
     const { success_uri } = req.body;
+    console.log("Success URI:", success_uri);
     // Generate CSRF protection state
     const state = crypto.randomBytes(16).toString("hex");
 
@@ -92,7 +93,10 @@ router.post("/init", async (req: Request, res: Response) => {
     Object.entries(params).forEach(([key, value]) => {
       authUrl.searchParams.append(key, value);
     });
-
+    console.log(
+      "[Twitter Init] Redirecting to Twitter authorization URL:",
+      authUrl.toString()
+    );
     res.json({ authUrl: authUrl.toString() });
   } catch (error) {
     console.error("[Twitter Auth] Error:", error);

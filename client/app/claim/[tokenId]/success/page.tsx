@@ -65,7 +65,7 @@ export default function SuccessPage() {
   }, [searchParams]);
 
   return (
-    <div className="container flex items-center justify-center min-h-[calc(100vh-4rem)]">
+    <div className="container mx-auto flex items-center justify-center min-h-screen p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Twitter Authentication Success</CardTitle>
