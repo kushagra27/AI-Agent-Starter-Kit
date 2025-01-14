@@ -393,7 +393,7 @@ router.post("/tweetCard", async (req: Request, res: Response) => {
       Buffer.from(me?.username ?? "").toString("base64url");
     const ngrokURL = await NgrokService.getInstance().getUrl();
     const claimURLWithNgrok =
-      ngrokURL + `/auth/twitter/claim/${slug}/index.html`;
+      ngrokURL + `/auth/twitter/card/${slug}/index.html`;
     console.log("[Tweet Card] Claim URL:", claimURLWithNgrok);
     const message = `🎉 Just claimed my @wow tokens through @${me?.username} Claim yours now, get started below! 🚀\n\n${claimURLWithNgrok}`;
     console.log("[Tweet Card] Sending tweet:", message);
