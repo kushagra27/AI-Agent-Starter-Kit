@@ -410,6 +410,25 @@ router.post("/tweetCard", async (req: Request, res: Response) => {
     );
     console.log("[Tweet Card] Tweet sent:", data);
     const tweetId = data.data.id;
+    const txHash = _txHash;
+    const replyMessage = `Transaction hash: https://basescan.org/tx/${txHash}`;
+    console.log("[Tweet Card] Replying to tweet:", replyMessage);
+    const { data: replyData } = await axios.post(
+      "https://api.twitter.com/2/tweets",
+      {
+        text: replyMessage,
+        reply: {
+          in_reply_to_tweet_id: tweetId,
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+    console.log("[Tweet Card] Reply sent:", replyData);
+
     const tweetUrl = `https://twitter.com/i/web/status/${tweetId}`;
     console.log("[Twitter Success] Tweet sent successfully:", tweetUrl);
 
