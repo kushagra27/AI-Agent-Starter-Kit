@@ -120,15 +120,17 @@ export default function SuccessPage() {
     setIsTweeting(true);
     try {
       const token = searchParams.get("token");
-      const message = `🎉 Just claimed my @WowXYZ airdrop!\n\nCheck out my transaction on Base:\nhttps://basescan.org/tx/${txHash}\n\nClaim yours now! 🚀`;
+      if (!token) {
+        throw new Error("No token provided");
+      }
 
-      const response = await fetch("/api/auth/twitter/tweet", {
+      const response = await fetch("/api/auth/twitter/tweetCard", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "x-auth-token": token ?? "",
         },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ txHash, tokenId }),
       });
 
       if (!response.ok) throw new Error("Failed to send tweet");

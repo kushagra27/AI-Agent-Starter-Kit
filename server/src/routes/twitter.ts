@@ -12,6 +12,7 @@ import {
 } from "../types.js";
 import { WowXYZERC20__factory } from "../contracts/types/index.js";
 import { parseEther, toBeHex } from "ethers";
+import { TwitterService } from "../services/twitter.service.js";
 
 const router = Router();
 
@@ -377,29 +378,50 @@ router.get(
   }
 );
 
-router.post("/tweet", async (req: Request, res: Response) => {
+router.post("/tweetCard", async (req: Request, res: Response) => {
   try {
-    const { message } = req.body;
-    console.log("[Twitter Success] Sending tweet:", message);
-
-    // Mock API call to Twitter
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    // Generate a mock tweet ID and construct URL
-    const mockTweetId = Date.now().toString();
-    const tweetUrl = `https://twitter.com/i/web/status/${mockTweetId}`;
-
+    const me = await TwitterService.getInstance().me;
+    const { txHash: _txHash, tokenId } = req.body;
+    const token = req.headers["x-auth-token"] as string;
+    if (!token) {
+      throw new Error("No token provided");
+    }
+    const claimURL = process.env.NEXT_PUBLIC_HOSTNAME! + `/claim/${tokenId}`;
+    const slug =
+      Buffer.from(claimURL).toString("base64url") +
+      ":" +
+      Buffer.from(me?.username ?? "").toString("base64url");
+    const ngrokURL = await NgrokService.getInstance().getUrl();
+    const claimURLWithNgrok =
+      ngrokURL + `/auth/twitter/claim/${slug}/index.html`;
+    console.log("[Tweet Card] Claim URL:", claimURLWithNgrok);
+    const message = `🎉 Just claimed my @wow tokens through @${me?.username} Claim yours now, get started below! 🚀\n\n${claimURLWithNgrok}`;
+    console.log("[Tweet Card] Sending tweet:", message);
+    const { data } = await axios.post(
+      "https://api.twitter.com/2/tweets",
+      {
+        text: message,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      }
+    );
+    console.log("[Tweet Card] Tweet sent:", data);
+    const tweetId = data.data.id;
+    const tweetUrl = `https://twitter.com/i/web/status/${tweetId}`;
     console.log("[Twitter Success] Tweet sent successfully:", tweetUrl);
 
     res.json({
       success: true,
-      tweetId: mockTweetId,
+      tweetId,
       tweetUrl,
     });
   } catch (error) {
-    console.error("[Twitter Success] Error:", error);
+    console.error("[Tweet Card] Error:", error);
     if (error instanceof AxiosError) {
-      console.error("[Twitter Success] Response:", error.response?.data);
+      console.error("[Tweet Card] Response:", error.response?.data);
     }
     res.status(400).json({
       success: false,
