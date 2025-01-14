@@ -1,10 +1,17 @@
 import { Router, Request, Response } from "express";
-import axios, { AxiosError } from "axios";
+import axios, { AxiosError, AxiosResponse } from "axios";
 import crypto from "crypto";
 import { NgrokService } from "../services/ngrok.service.js";
 import { CacheService } from "../services/cache.service.js";
 import { getCardHTML, getCollablandApiUrl } from "../utils.js";
-import { IAccountInfo } from "src/types.js";
+import {
+  IAccountInfo,
+  IExecuteUserOpRequest,
+  IExecuteUserOpResponse,
+  IUserOperationReceipt,
+} from "../types.js";
+import { WowXYZERC20__factory } from "../contracts/types/index.js";
+import { parseEther, toBeHex } from "ethers";
 
 const router = Router();
 
@@ -291,32 +298,76 @@ router.get("/getAccountAddress", async (req: Request, res: Response) => {
 router.get(
   "/sendAirdrop/:tokenId/:recipient",
   async (req: Request, res: Response) => {
+    // Set timeout to 10 minutes
+    req.setTimeout(10 * 60 * 1000);
+    res.setTimeout(10 * 60 * 1000);
     try {
       const { tokenId, recipient } = req.params;
       console.log(
-        `[Twitter Success] Sending airdrop for token ${tokenId} to ${recipient}`
+        `[Twitter Airdrop] Sending airdrop for token ${tokenId} to ${recipient}`
       );
-
-      // Mock a delay to simulate blockchain transaction
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      // Generate a mock transaction hash (40 hex characters)
-      const mockTxHash =
-        "0x" +
-        Array.from({ length: 64 }, () =>
-          Math.floor(Math.random() * 16).toString(16)
-        ).join("");
-
-      console.log("[Twitter Success] Airdrop sent with tx hash:", mockTxHash);
+      // Chain ID will be base, since Wow.XYZ is on base
+      const chainId = 8453;
+      const contract = WowXYZERC20__factory.connect(tokenId);
+      const calldata = contract.interface.encodeFunctionData("buy", [
+        recipient, // recipient
+        recipient, // address
+        recipient, // orderReferrer
+        `Airdrop for ${recipient}`, // comment
+        0, // marketType
+        0, // minOrderSize
+        0, // sqrtPriceLimitX96
+      ]);
+      const value = parseEther("0.0000001");
+      const payload = {
+        target: tokenId,
+        calldata: calldata,
+        value: toBeHex(value),
+      };
+      console.log("[Twitter Airdrop] Payload:", payload);
+      console.log("Hitting Collab.Land APIs to submit UserOperation...");
+      const apiUrl = getCollablandApiUrl();
+      const { data } = await axios.post<
+        IExecuteUserOpRequest,
+        AxiosResponse<IExecuteUserOpResponse>
+        //Chain ID will be base, since Wow.XYZ is on base
+      >(
+        `${apiUrl}/telegrambot/evm/submitUserOperation?chainId=${chainId}`,
+        payload,
+        {
+          headers: {
+            "X-API-KEY": process.env.COLLABLAND_API_KEY!,
+            "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN!,
+          },
+          timeout: 10 * 60 * 1000,
+        }
+      );
+      console.log("[Twitter Airdrop] UserOperation submitted:", data);
+      const userOp = data.userOperationHash;
+      console.log("Hitting Collab.Land APIs to confirm UserOperation", userOp);
+      const { data: userOpData } = await axios.get<IUserOperationReceipt>(
+        `${apiUrl}/telegrambot/evm/userOperationReceipt?chainId=${chainId}&userOperationHash=${userOp}`,
+        {
+          headers: {
+            "X-API-KEY": process.env.COLLABLAND_API_KEY!,
+            "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN!,
+          },
+          timeout: 10 * 60 * 1000,
+        }
+      );
+      console.log("[Twitter Airdrop] UserOperation confirmed:", userOpData);
+      const txHash = userOpData.receipt?.transactionHash;
+      console.log("[Twitter Airdrop] Transaction hash:", txHash);
+      console.log("[Twitter Airdrop] Airdrop sent with tx hash:", txHash);
 
       res.json({
         success: true,
-        txHash: mockTxHash,
+        txHash: txHash,
       });
     } catch (error) {
-      console.error("[Twitter Success] Error:", error);
+      console.error("[Twitter Airdrop] Error:", error);
       if (error instanceof AxiosError) {
-        console.error("[Twitter Success] Response:", error.response?.data);
+        console.error("[Twitter Airdrop] Response:", error.response?.data);
       }
       res.status(400).json({
         success: false,
