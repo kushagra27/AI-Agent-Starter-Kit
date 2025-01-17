@@ -84,7 +84,7 @@ const main = async () => {
     setInterval(() => {
       console.log("API available at:", server.url());
       console.log("Front-end available at:", client.url());
-    }, 15 * 1000);
+    }, 60 * 1000);
 
   } catch (error) {
     console.error("NGROK Error:", error);
