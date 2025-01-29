@@ -32,16 +32,15 @@ export class TwitterService extends BaseService {
   public async start(): Promise<void> {
     try {
       console.log("[TwitterService] Starting service...");
+      if (!(await fs.stat(twitterCookiesPath).catch(() => false))) {
+        throw new Error(
+          "Twitter cookies not found. Please run the `pnpm login-x` script first."
+        );
+      }
       console.log(
         "[TwitterService] Loading Twitter cookies from:",
         twitterCookiesPath
       );
-      if (!(await fs.stat(twitterCookiesPath).catch(() => false))) {
-        throw new Error(
-          "Twitter cookies not found. Please run the `pnpm letsgo` script first."
-        );
-      }
-
       const cookieJson = await fs.readFile(twitterCookiesPath, "utf-8");
       const cookiesJSON = JSON.parse(cookieJson);
       this.scraper = new Scraper();

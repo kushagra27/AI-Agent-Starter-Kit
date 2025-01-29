@@ -100,7 +100,9 @@ export class TelegramService extends BaseService {
       // required when starting server for telegram webooks
       this.nGrokService = await NgrokService.getInstance();
       try {
+        // try starting the twitter service
         this.twitterService = await TwitterService.getInstance();
+        await this.twitterService?.start();
         console.log(
           "Twitter Bot Profile:",
           JSON.stringify(this.twitterService.me, null, 2)

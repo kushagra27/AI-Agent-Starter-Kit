@@ -11,6 +11,7 @@
     "start": "node dist/index.js",
     "lint": "prettier --write . && eslint . --fix --config .eslintrc.json",
     "www-dev": "node bin/www-dev",
+    "login-x": "node bin/check-x-login",
     "generate-types": "typechain --node16-modules --target ethers-v6 --out-dir src/contracts/types 'src/contracts/abis/*.json'"
   },
   "dependencies": {
