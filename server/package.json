@@ -19,10 +19,11 @@
     "@ai16z/eliza": "0.1.5-alpha.3",
     "@ai16z/plugin-bootstrap": "0.1.5-alpha.3",
     "@grammyjs/conversations": "^1.2.0",
+    "@nevermined-io/payments": "^0.8.1",
     "@ngrok/ngrok": "^1.4.1",
     "@solana/web3.js": "^1.98.0",
-    "agent-twitter-client": "^0.0.18",
     "@useorbis/db-sdk": "0.0.60-alpha",
+    "agent-twitter-client": "^0.0.18",
     "axios": "^1.7.7",
     "better-sqlite3": "^11.6.0",
     "cookie-parser": "^1.4.7",
@@ -35,7 +36,9 @@
     "jsonc-parser": "^3.3.1",
     "node-cache": "^5.1.2",
     "prettier": "^3.4.2",
-    "tsc-watch": "^6.2.1"
+    "tsc-watch": "^6.2.1",
+    "@0xintuition/graphql": "^0.5.0",
+    "@0xintuition/protocol": "^0.1.4"
   },
   "devDependencies": {
     "@typechain/ethers-v6": "^0.5.1",
