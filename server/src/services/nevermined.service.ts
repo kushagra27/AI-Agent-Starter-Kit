@@ -13,6 +13,7 @@ import { parseUnits } from "ethers";
 import * as path from "path";
 import * as fs from "fs/promises";
 import { AnyType } from "src/utils.js";
+import { getEthDenverSideEventTriples } from "../utils/Intuition/queries.js";
 
 //FIXME: Remove once Nevermined SDK is updated
 interface NeverminedStep extends Step {
@@ -266,7 +267,7 @@ export class NeverminedService extends BaseService {
           });
           console.log("[NeverminedService] Step received ", step);
           const fetchDataStepId = generateStepId();
-          const encryptDataStepId = generateStepId();
+          // const encryptDataStepId = generateStepId();
 
           const steps = [
             {
@@ -274,13 +275,6 @@ export class NeverminedService extends BaseService {
               task_id: step.task_id,
               predecessor: step.step_id, // "fetchData" follows "init"
               name: "fetchData",
-              is_last: false,
-            },
-            {
-              step_id: encryptDataStepId,
-              task_id: step.task_id,
-              predecessor: fetchDataStepId, // "encryptData" follows "fetchData"
-              name: "encryptData",
               is_last: true,
             },
           ];
@@ -317,42 +311,65 @@ export class NeverminedService extends BaseService {
             task_id: step.task_id,
             step_id: step.step_id,
             task_status: AgentExecutionStatus.In_Progress,
-            message: `Step received ${step.name}, fetching data...`,
+            message: `Step received ${step.name}, fetching data from Intuition...`,
           });
-          // await this.telegramService?.bot.api.sendMessage(
-          //   "-4729581369",
-          //   `Step received ${step.name}, fetching data...`
-          // );
-          const mockData = step.input_query ?? `step-1-mock-data-${Date.now()}`;
-          await payments.query.logTask({
-            level: "info",
-            task_id: step.task_id,
-            step_id: step.step_id,
-            task_status: AgentExecutionStatus.In_Progress,
-            message: `Data fetched: ${mockData}`,
-          });
-          console.log(
-            "[NeverminedService] Data fetched: ",
-            mockData,
-            step.task_id,
-            step.step_id
-          );
-          await payments.query.updateStep(step.did, {
-            ...step,
-            step_status: AgentExecutionStatus.Completed,
-            output: mockData,
-            cost: 3,
-          });
-          await payments.query.logTask({
-            level: "info",
-            task_id: step.task_id,
-            task_status: AgentExecutionStatus.In_Progress,
-            message: `Step 1 completed, data fetched`,
-          });
-          // await this.telegramService?.bot.api.sendMessage(
-          //   "-4729581369",
-          //   `Step 1 completed, data fetched`
-          // );
+
+          try {
+            // Fetch real data from Intuition
+            const events = await getEthDenverSideEventTriples();
+
+            // Add query context to the output
+            const formattedData = {
+              query: step.input_query,
+              events: events.map((event) => ({
+                name: event.name,
+                url: event.url || null,
+                description: event.description || null,
+              })),
+              timestamp: new Date().toISOString(),
+              total: events.length,
+            };
+
+            await payments.query.logTask({
+              level: "info",
+              task_id: step.task_id,
+              step_id: step.step_id,
+              task_status: AgentExecutionStatus.In_Progress,
+              message: `Data fetched successfully: ${JSON.stringify(formattedData)}`,
+            });
+
+            await payments.query.updateStep(step.did, {
+              ...step,
+              step_status: AgentExecutionStatus.Completed,
+              output: formattedData,
+              cost: 3,
+              is_last: true,
+            });
+
+            await payments.query.logTask({
+              level: "info",
+              task_id: step.task_id,
+              task_status: AgentExecutionStatus.In_Progress,
+              message: `Step completed, ETH Denver event data fetched`,
+            });
+          } catch (error) {
+            console.error("[NeverminedService] Error fetching data:", error);
+
+            await payments.query.logTask({
+              level: "error",
+              task_id: step.task_id,
+              step_id: step.step_id,
+              task_status: AgentExecutionStatus.Failed,
+              message: `Error fetching data: ${error.message}`,
+            });
+
+            await payments.query.updateStep(step.did, {
+              ...step,
+              step_status: AgentExecutionStatus.Failed,
+              output: { error: "Failed to fetch ETH Denver event data" },
+              cost: 0,
+            });
+          }
           return;
         }
         case "encryptData": {

@@ -11,8 +11,8 @@ import {
 import fs from "fs";
 import axios, { AxiosResponse, isAxiosError } from "axios";
 import { parse as jsoncParse } from "jsonc-parser";
-import path, { resolve } from "path";
-import { keccak256, getBytes, toUtf8Bytes } from "ethers";
+// import path from "path";
+// import { keccak256, getBytes, toUtf8Bytes } from "ethers";
 import { TwitterService } from "./twitter.service.js";
 import { NgrokService } from "./ngrok.service.js";
 import { NeverminedService } from "./nevermined.service.js";
@@ -21,22 +21,23 @@ import {
   findRelevantAgents,
   groupAgentsByFunction,
   getAgentNeverminedData,
+  getEthDenverSideEventTriples,
 } from "../utils/Intuition/queries.js";
 
 // hack to avoid 400 errors sending params back to telegram. not even close to perfect
-const htmlEscape = (_key: AnyType, val: AnyType) => {
-  if (typeof val === "string") {
-    return val
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;"); // single quote
-  }
-  return val;
-};
+// const htmlEscape = (_key: AnyType, val: AnyType) => {
+//   if (typeof val === "string") {
+//     return val
+//       .replace(/&/g, "&amp;")
+//       .replace(/</g, "&lt;")
+//       .replace(/>/g, "&gt;")
+//       .replace(/"/g, "&quot;")
+//       .replace(/'/g, "&#39;"); // single quote
+//   }
+//   return val;
+// };
 
-const __dirname = path.dirname(new URL(import.meta.url).pathname);
+// const __dirname = path.dirname(new URL(import.meta.url).pathname);
 export class TelegramService extends BaseService {
   private static instance: TelegramService;
   public bot: Bot;
@@ -128,6 +129,10 @@ export class TelegramService extends BaseService {
         {
           command: "nvm_balance",
           description: "Get the plan balance on Nevermined",
+        },
+        {
+          command: "events",
+          description: "Fetch ETH Denver '25 Side Event information",
         },
       ]);
       // all command handlers can be registered here
@@ -465,6 +470,42 @@ export class TelegramService extends BaseService {
           );
         }
       });
+
+      this.bot.command("events", async (ctx) => {
+        try {
+          await ctx.reply("🔍 Fetching ETH Denver '25 Side Events...");
+
+          const events = await getEthDenverSideEventTriples();
+
+          if (!events || events.length === 0) {
+            await ctx.reply("❌ No events found");
+            return;
+          }
+
+          // Format the events data for display
+          let message = "✨ ETH Denver Events:\n\n";
+
+          events.forEach((event, index) => {
+            message += `🎯 Event ${index + 1}:\n`;
+            message += `📍 ${event.name}\n`;
+            if (event.url) {
+              message += `🌐 ${event.url}\n`;
+            }
+            if (event.description) {
+              message += `📝 ${event.description}\n`;
+            }
+            message += "\n";
+          });
+
+          await ctx.reply(message);
+        } catch (error) {
+          console.error("Error in events command:", error);
+          await ctx.reply(
+            `❌ Error: ${error.message || "Failed to fetch events data"}`
+          );
+        }
+      });
+
       this.bot.catch(async (error) => {
         console.error("Telegram bot error:", error);
       });
@@ -587,156 +628,6 @@ You can view the token page below (it takes a few minutes to be visible)`,
             console.error("Failed to mint token:", error);
           }
           ctx.reply("Failed to mint token");
-        }
-      });
-      this.bot.command("lit", async (ctx) => {
-        try {
-          const action = ctx.match;
-          console.log("action:", action);
-          const actionHashes = JSON.parse(
-            (
-              await fs.readFileSync(
-                resolve(
-                  __dirname,
-                  "..",
-                  "..",
-                  "..",
-                  "lit-actions",
-                  "actions",
-                  `ipfs.json`
-                )
-              )
-            ).toString()
-          );
-          console.log("actionHashes:", actionHashes);
-          const actionHash = actionHashes[action];
-          console.log("actionHash:", actionHash);
-          if (!actionHash) {
-            ctx.reply(`Action not found: ${action}`);
-            return;
-          }
-          // ! NOTE: You can send any jsParams you want here, it depends on your Lit action code
-          let jsParams;
-          // ! NOTE: You can change the chainId to any chain you want to execute the action on
-          const chainId = 8453;
-          switch (action) {
-            case "hello-action": {
-              // ! NOTE: The message to sign can be any normal message, or raw TX
-              // ! In order to sign EIP-191 message, you need to encode it properly, Lit protocol does raw signatures
-              const messageToSign =
-                ctx.from?.username ?? ctx.from?.first_name ?? "";
-              const messageToSignDigest = keccak256(toUtf8Bytes(messageToSign));
-              jsParams = {
-                helloName: messageToSign,
-                toSign: Array.from(getBytes(messageToSignDigest)),
-              };
-              break;
-            }
-            case "decrypt-action": {
-              const toEncrypt = `encrypt-decrypt-test-${new Date().toUTCString()}`;
-              ctx.reply(`Invoking encrypt action with ${toEncrypt}`);
-              const { data } = await client.post(
-                `/telegrambot/executeLitActionUsingPKP?chainId=${chainId}`,
-                {
-                  actionIpfs: actionHashes["encrypt-action"].IpfsHash,
-                  actionJsParams: {
-                    toEncrypt,
-                  },
-                }
-              );
-              console.log("encrypt response ", data);
-              const { ciphertext, dataToEncryptHash } = JSON.parse(
-                data.response.response
-              );
-              jsParams = {
-                ciphertext,
-                dataToEncryptHash,
-                chain: "base",
-              };
-              break;
-            }
-            case "encrypt-action": {
-              const message =
-                ctx.from?.username ?? ctx.from?.first_name ?? "test data";
-              jsParams = {
-                toEncrypt: `${message}-${new Date().toUTCString()}`,
-              };
-              break;
-            }
-            default: {
-              // they typed something random or a dev forgot to update this list
-              ctx.reply(`Action not handled: ${action}`);
-              return;
-            }
-          }
-          await ctx.reply(
-            "Executing action..." +
-              `\n\nAction Hash: <code>${actionHash.IpfsHash}</code>\n\nParams:\n<pre lang="json"><code>${JSON.stringify(
-                jsParams,
-                htmlEscape,
-                2
-              )}</code></pre>`,
-            {
-              parse_mode: "HTML",
-            }
-          );
-          console.log(
-            `[telegram.service] executing lit action with hash ${actionHash.IpfsHash} on chain ${chainId}`
-          );
-          const { data } = await client.post(
-            `/telegrambot/executeLitActionUsingPKP?chainId=${chainId}`,
-            {
-              actionIpfs: actionHash.IpfsHash,
-              actionJsParams: jsParams,
-            }
-          );
-          console.log(
-            `Action with hash ${actionHash.IpfsHash} executed on Lit Nodes 🔥`
-          );
-          console.log("Result:", data);
-          ctx.reply(
-            `Action executed on Lit Nodes 🔥\n\n` +
-              `Action: <code>${actionHash.IpfsHash}</code>\n` +
-              `Result:\n<pre lang="json"><code>${JSON.stringify(
-                data,
-                null,
-                2
-              )}</code></pre>`,
-            {
-              parse_mode: "HTML",
-            }
-          );
-        } catch (error) {
-          if (isAxiosError(error)) {
-            console.error(
-              "Failed to execute Lit action:",
-              error.response?.data
-            );
-            ctx.reply(
-              "Failed to execute Lit action" +
-                `\n\nError: <pre lang="json"><code>${JSON.stringify(
-                  error.response?.data,
-                  null,
-                  2
-                )}</code></pre>`,
-              {
-                parse_mode: "HTML",
-              }
-            );
-          } else {
-            console.error("Failed to execute Lit action:", error);
-            ctx.reply(
-              "Failed to execute Lit action" +
-                `\n\nError: <pre lang="json"><code>${JSON.stringify(
-                  error?.message,
-                  null,
-                  2
-                )}</code></pre>`,
-              {
-                parse_mode: "HTML",
-              }
-            );
-          }
         }
       });
     } catch (error) {

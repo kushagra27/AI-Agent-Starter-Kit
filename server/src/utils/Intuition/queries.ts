@@ -608,3 +608,116 @@ export async function getAgentNeverminedData(
 // console.log("Nevermined Agent ID:", agentData.agentId);
 // console.log("Nevermined Plan ID:", agentData.planId);
 // console.log("All triples:", agentData.allTriples);
+
+/**
+ * Interface for structured event data
+ */
+export interface EventInfo {
+  name: string;
+  url?: string;
+  description?: string;
+}
+
+/**
+ * Fetches and formats ETH Denver events from Intuition
+ * @returns Promise resolving to array of event names and URLs
+ */
+export async function getEthDenverSideEventTriples(): Promise<EventInfo[]> {
+  const client = getGqlClient();
+
+  const query = `
+    query GetTriples($where: triples_bool_exp!) {
+      triples(
+        where: $where, 
+        order_by: {block_timestamp: desc}
+      ) {
+        subject {
+          label
+          value {
+            thing {
+              name
+              url
+              description
+            }
+            organization {
+              name
+              url
+              description
+            }
+          }
+        }
+        object {
+          label
+          value {
+            thing {
+              name
+              url
+              description
+            }
+            organization {
+              name
+              url
+              description
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const variables = {
+    where: {
+      _or: [
+        {
+          subject: {
+            _or: [
+              { label: { _ilike: "%ETH Denver%" } },
+              { value: { thing: { name: { _ilike: "%ETH Denver%" } } } },
+              { value: { organization: { name: { _ilike: "%ETH Denver%" } } } },
+            ],
+          },
+        },
+        {
+          object: {
+            _or: [
+              { label: { _ilike: "%ETH Denver%" } },
+              { value: { thing: { name: { _ilike: "%ETH Denver%" } } } },
+              { value: { organization: { name: { _ilike: "%ETH Denver%" } } } },
+            ],
+          },
+        },
+      ],
+    },
+  };
+
+  const response = await client.request<TripleResponse>(query, variables);
+
+  // Extract and format event information
+  const events = response.triples.map((triple) => {
+    // Determine which part (subject or object) contains the event info
+    const eventNode =
+      triple.subject.value.thing?.name?.includes("ETH Denver") ||
+      triple.subject.value.organization?.name?.includes("ETH Denver")
+        ? triple.subject
+        : triple.object;
+
+    // Get event details from either thing or organization
+    const thingInfo = eventNode.value.thing;
+    const orgInfo = eventNode.value.organization;
+
+    return {
+      name: thingInfo?.name || orgInfo?.name || eventNode.label,
+      url: thingInfo?.url || orgInfo?.url,
+      description: thingInfo?.description || orgInfo?.description,
+    };
+  });
+
+  // Remove duplicates and get random 5
+  const uniqueEvents = Array.from(
+    new Map(events.map((event) => [event.name, event])).values()
+  )
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 5);
+
+  return uniqueEvents;
+}
