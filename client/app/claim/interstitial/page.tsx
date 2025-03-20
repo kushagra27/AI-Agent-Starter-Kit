@@ -26,6 +26,7 @@ export default function InterstitialPage() {
     } else {
       // Direct navigation - store token and redirect if successUri exists
       sessionStorage.setItem("success_auth", successUri || "");
+      sessionStorage.setItem("twitter_auth", "true");
       if (successUri) {
         window.location.href = successUri;
       }

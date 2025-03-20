@@ -1,0 +1,11 @@
+{
+  "name": "Charlie Token", // Name of the token
+  "symbol": "CHAR", // Symbol of the token
+  "description": "Charlie the chor!", // Description of the token
+  "websiteLink": "https://github.com/collabland/AI-Agent-Starter-Kit", // Website link of the token
+  "twitter": "Phunt_Worm", // Twitter handle of the token
+  "discord": "https://discord.gg/Phunt_Worm", // Discord link of the token
+  "telegram": "mother_dao_charlie_bot", // Telegram link of the bot handling the token
+  "nsfw": false, // NSFW flag of the token
+  "image": "ipfs://bafybeiaa5v7jjcpj453vwdch4ykhu6fkczrtmc2l2gnapdyr33suxdal5e", // Image of the token, should be uploaded to IPFS
+}

@@ -37,5 +37,8 @@
   },
   "author": "Abridged, Inc.",
   "license": "MIT",
-  "packageManager": "pnpm@9.14.1"
+  "packageManager": "pnpm@9.14.1",
+  "dependencies": {
+    "ethers": "^6.13.5"
+  }
 }

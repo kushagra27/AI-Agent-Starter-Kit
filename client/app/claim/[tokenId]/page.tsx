@@ -21,15 +21,26 @@ export default function ClaimPage() {
   useEffect(() => {
     const init = async () => {
       setHostname(window.location.origin);
-      // Check if token exists in session storage
+
+      // Check if auth tokens exist in session storage
       const token = sessionStorage.getItem("twitter_token");
-      if (token) {
-        // Redirect to success page if token exists
+      const profile = sessionStorage.getItem("twitter_profile");
+
+      if (token && profile) {
+        console.log("Found existing Twitter auth, redirecting to success page");
+        // We have all necessary data, redirect to success page
         router.push(`/claim/${tokenId}/success?token=${token}`);
       } else {
+        // Check for success_auth which might come from interstitial page
+        const successAuth = sessionStorage.getItem("success_auth");
+        if (successAuth && successAuth.includes(`/claim/${tokenId}/success`)) {
+          // We have auth from interstitial but no token yet, let the URL redirect happen
+          console.log("Found success_auth, waiting for redirect");
+        }
         setIsChecking(false);
       }
     };
+
     init();
   }, [tokenId, router]);
 

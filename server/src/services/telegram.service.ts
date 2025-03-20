@@ -90,6 +90,7 @@ export class TelegramService extends BaseService {
         { command: "mint", description: "Mint a token on Wow.xyz" },
         { command: "eliza", description: "Talk to the AI agent" },
         { command: "lit", description: "Execute a Lit action" },
+        { command: "post", description: "Post a tweet about the new token" },
       ]);
       // all command handlers can be registered here
       this.bot.command("start", (ctx) => ctx.reply("Hello!"));
@@ -165,7 +166,8 @@ You can view the token page below (it takes a few minutes to be visible)`,
           if (this.twitterService) {
             const twitterBotInfo = this.twitterService.me;
             const twitterClient = this.twitterService.getScraper();
-            const ngrokURL = this.nGrokService.getUrl();
+            // const ngrokURL = this.nGrokService.getUrl();
+            const ngrokURL = process.env.NGROK_URL;
             await ctx.reply(
               `🐦 Posting a tweet about the new token...\n\n` +
                 `Twitter account details:\n<pre lang="json"><code>${JSON.stringify(
@@ -177,7 +179,7 @@ You can view the token page below (it takes a few minutes to be visible)`,
                 parse_mode: "HTML",
               }
             );
-            const claimURL = `${process.env.NEXT_PUBLIC_HOSTNAME}/claim/${tokenData.address}`;
+            const claimURL = `${process.env.NGROK_URL}/claim/${tokenData.address}`;
             const botUsername = twitterBotInfo?.username;
             console.log("botUsername:", botUsername);
             console.log("claimURL:", claimURL);
@@ -364,6 +366,65 @@ You can view the token page below (it takes a few minutes to be visible)`,
                 parse_mode: "HTML",
               }
             );
+          }
+        }
+      });
+      this.bot.command("post", async (ctx) => {
+        if (this.twitterService) {
+          const tokenData = {
+            object: "fungible",
+            name: "Charlie Token",
+            symbol: "CHAR",
+            media:
+              "ipfs://bafybeiaa5v7jjcpj453vwdch4ykhu6fkczrtmc2l2gnapdyr33suxdal5e",
+            address: "0x475456E460D1CF85DBBc3Cd12406520243Ab080A",
+            decimals: 18,
+          };
+
+          const twitterBotInfo = this.twitterService.me;
+          const twitterClient = this.twitterService.getScraper();
+          const ngrokURL = this.nGrokService.getUrl();
+          console.log("ngrokURL:", ngrokURL);
+          await ctx.reply(
+            `🐦 Posting a tweet about the new token...\n\n` +
+              `Twitter account details:\n<pre lang="json"><code>${JSON.stringify(
+                twitterBotInfo,
+                null,
+                2
+              )}</code></pre>`,
+            {
+              parse_mode: "HTML",
+            }
+          );
+          const claimURL = `${process.env.NEXT_PUBLIC_HOSTNAME}/claim/${tokenData.address}`;
+          const botUsername = twitterBotInfo?.username;
+          console.log("botUsername:", botUsername);
+          console.log("claimURL:", claimURL);
+          const slug =
+            Buffer.from(claimURL).toString("base64url") +
+            ":" +
+            Buffer.from(botUsername!).toString("base64url");
+          console.log("slug:", slug);
+          const cardURL = `${ngrokURL}/auth/twitter/card/${slug}/index.html`;
+          console.log("cardURL:", cardURL);
+          const twtRes = await twitterClient.sendTweet(
+            `I just minted a token on Base using Wow!\nThe ticker is $${tokenData.symbol}\nClaim early alpha here: ${cardURL}`
+          );
+          if (twtRes.ok) {
+            const tweetId = (await twtRes.json()) as AnyType;
+            console.log("Tweet posted successfully:", tweetId);
+            const tweetURL = `https://twitter.com/${twitterBotInfo?.username}/status/${tweetId?.data?.create_tweet?.tweet_results?.result?.rest_id}`;
+            console.log("Tweet URL:", tweetURL);
+            await ctx.reply(
+              `Tweet posted successfully!\n\n` +
+                `🎉 Tweet details: ${tweetURL}`,
+              {
+                parse_mode: "HTML",
+              }
+            );
+          } else {
+            console.error("Failed to post tweet:", await twtRes.json());
+            await ctx.reply("Failed to post tweet");
           }
         }
       });

@@ -71,6 +71,7 @@ function generateCodeChallenge(verifier: string) {
  * - Constructs Twitter authorization URL
  */
 router.post("/init", async (req: Request, res: Response) => {
+  console.log("init");
   try {
     const ngrokURL = await NgrokService.getInstance().getUrl();
     const { success_uri } = req.body;

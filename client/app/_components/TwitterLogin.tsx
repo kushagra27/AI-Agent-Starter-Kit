@@ -32,6 +32,7 @@ export function TwitterLogin({ successUri }: TwitterLoginProps) {
   const handleTwitterLogin = async (e: React.MouseEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    console.log("handleTwitterLogin");
 
     try {
       const response = await fetch(`/api/auth/twitter/init`, {
@@ -48,6 +49,8 @@ export function TwitterLogin({ successUri }: TwitterLoginProps) {
             : ``,
         }),
       });
+
+      console.log("response", response);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
