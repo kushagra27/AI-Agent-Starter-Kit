@@ -72,7 +72,7 @@ export default function ClaimPage() {
     <div className="container mx-auto flex items-center justify-center min-h-screen p-4 bg-white">
       <Card className="w-full max-w-md bg-white border-gray-200">
         <CardHeader className="bg-white">
-          <CardTitle>Claim Wow.XYZ Airdrop</CardTitle>
+          <CardTitle>Vote on your favorite AI projects</CardTitle>
           <CardDescription>
             Token:{" "}
             <a

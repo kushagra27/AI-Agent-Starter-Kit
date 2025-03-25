@@ -377,7 +377,7 @@ You can view the token page below (it takes a few minutes to be visible)`,
             symbol: "CHAR",
             media:
               "ipfs://bafybeiaa5v7jjcpj453vwdch4ykhu6fkczrtmc2l2gnapdyr33suxdal5e",
-            address: "0x475456E460D1CF85DBBc3Cd12406520243Ab080A",
+            address: "0xb6a7325A1841f4097260599d76AaC8217e8C4762",
             decimals: 18,
           };
 

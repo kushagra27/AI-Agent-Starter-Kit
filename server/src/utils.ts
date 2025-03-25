@@ -66,17 +66,17 @@ export const getCardHTML = (botUsername: string, claimURL: string) => {
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<meta name="twitter:card" content="player" />
 	<meta name="twitter:site" content="@${botUsername}" />
-	<meta name="twitter:title" content="AI Agent Starter Kit" />
+	<meta name="twitter:title" content="Mother AI" />
 	<meta name="twitter:description"
-		content="This is a sample card for claiming airdrops with the AI Agent Starter Kit" />
-	<meta name="twitter:image" content="https://assets.collab.land/collabland-logo.png" />
+		content="This is a sample card for voting on your favorite AI projects" />
+	<meta name="twitter:image" content="https://closing-elf-internal.ngrok-free.app/auth/twitter/asset/MotherLogo.jpg" />
 	<meta name="twitter:player" content="${claimURL}" />
 	<meta name="twitter:player:width" content="480" />
 	<meta name="twitter:player:height" content="480" />
 </head>
 
 <body>
-	<title>Claim token airdrop.</title>
+	<title>Vote on your favorite AI projects</title>
 </body>
 
 </html>`;

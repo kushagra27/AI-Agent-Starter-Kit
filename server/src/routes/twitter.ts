@@ -1,18 +1,14 @@
 import { Router, Request, Response } from "express";
-import axios, { AxiosError, AxiosResponse } from "axios";
+import axios, { AxiosError } from "axios";
 import crypto from "crypto";
 import { NgrokService } from "../services/ngrok.service.js";
 import { CacheService } from "../services/cache.service.js";
 import { getCardHTML, getCollablandApiUrl } from "../utils.js";
-import {
-  IAccountInfo,
-  IExecuteUserOpRequest,
-  IExecuteUserOpResponse,
-  IUserOperationReceipt,
-} from "../types.js";
-import { WowXYZERC20__factory } from "../contracts/types/index.js";
-import { parseEther, toBeHex } from "ethers";
+import { IAccountInfo } from "../types.js";
 import { TwitterService } from "../services/twitter.service.js";
+import { ethers } from "ethers";
+import path from "path";
+import fs from "fs";
 
 const router = Router();
 
@@ -74,6 +70,7 @@ router.post("/init", async (req: Request, res: Response) => {
   console.log("init");
   try {
     const ngrokURL = await NgrokService.getInstance().getUrl();
+    console.log("NGROK URL:", ngrokURL);
     const { success_uri } = req.body;
     console.log("Success URI:", success_uri);
     // Generate CSRF protection state
@@ -98,6 +95,8 @@ router.post("/init", async (req: Request, res: Response) => {
       code_challenge: codeChallenge, // PKCE challenge
       code_challenge_method: "S256",
     };
+
+    console.log("Params:", params);
 
     // Add params to URL
     Object.entries(params).forEach(([key, value]) => {
@@ -308,58 +307,61 @@ router.get(
       console.log(
         `[Twitter Airdrop] Sending airdrop for token ${tokenId} to ${recipient}`
       );
-      // Chain ID will be base, since Wow.XYZ is on base
-      const chainId = 8453;
-      const contract = WowXYZERC20__factory.connect(tokenId);
-      const calldata = contract.interface.encodeFunctionData("buy", [
-        recipient, // recipient
-        recipient, // address
-        recipient, // orderReferrer
-        `Airdrop for ${recipient}`, // comment
-        0, // marketType
-        0, // minOrderSize
-        0, // sqrtPriceLimitX96
-      ]);
-      const value = parseEther("0.0000001");
-      const payload = {
-        target: tokenId,
-        calldata: calldata,
-        value: toBeHex(value),
-      };
-      console.log("[Twitter Airdrop] Payload:", payload);
-      console.log("Hitting Collab.Land APIs to submit UserOperation...");
-      const apiUrl = getCollablandApiUrl();
-      const { data } = await axios.post<
-        IExecuteUserOpRequest,
-        AxiosResponse<IExecuteUserOpResponse>
-        //Chain ID will be base, since Wow.XYZ is on base
-      >(
-        `${apiUrl}/telegrambot/evm/submitUserOperation?chainId=${chainId}`,
-        payload,
-        {
-          headers: {
-            "X-API-KEY": process.env.COLLABLAND_API_KEY!,
-            "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN!,
-          },
-          timeout: 10 * 60 * 1000,
-        }
+
+      // Use private key from environment variables
+      if (!process.env.PRIVATE_KEY) {
+        throw new Error(
+          "WALLET_PRIVATE_KEY is not configured in environment variables"
+        );
+      }
+
+      // Connect to Base Sepolia network
+      const provider = new ethers.JsonRpcProvider("https://sepolia.base.org");
+      const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+
+      // Token contract address for the voting token
+      const tokenContractAddress = "0xb6a7325A1841f4097260599d76AaC8217e8C4762";
+
+      // ABI for ERC20 token (we only need the transfer function)
+      const tokenAbi = [
+        "function transfer(address to, uint256 value) returns (bool)",
+        "function balanceOf(address account) view returns (uint256)",
+        "function decimals() view returns (uint8)",
+      ];
+
+      // Connect to the token contract
+      const tokenContract = new ethers.Contract(
+        tokenContractAddress,
+        tokenAbi,
+        wallet
       );
-      console.log("[Twitter Airdrop] UserOperation submitted:", data);
-      const userOp = data.userOperationHash;
-      console.log("Hitting Collab.Land APIs to confirm UserOperation", userOp);
-      const { data: userOpData } = await axios.get<IUserOperationReceipt>(
-        `${apiUrl}/telegrambot/evm/userOperationReceipt?chainId=${chainId}&userOperationHash=${userOp}`,
-        {
-          headers: {
-            "X-API-KEY": process.env.COLLABLAND_API_KEY!,
-            "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN!,
-          },
-          timeout: 10 * 60 * 1000,
-        }
-      );
-      console.log("[Twitter Airdrop] UserOperation confirmed:", userOpData);
-      const txHash = userOpData.receipt?.transactionHash;
-      console.log("[Twitter Airdrop] Transaction hash:", txHash);
+
+      // Amount to send - 100 tokens
+      const decimals = await tokenContract.decimals();
+      const amount = ethers.parseUnits("10", decimals);
+
+      console.log(`[Twitter Airdrop] Sending ${amount} tokens to ${recipient}`);
+
+      // Check balance before sending
+      const balance = await tokenContract.balanceOf(wallet.address);
+      console.log(`[Twitter Airdrop] Contract balance: ${balance}`);
+
+      if (balance < amount) {
+        throw new Error(
+          `Insufficient token balance. Required: ${amount}, Available: ${balance}`
+        );
+      }
+
+      // Send the tokens
+      const tx = await tokenContract.transfer(recipient, amount);
+      console.log(`[Twitter Airdrop] Transaction submitted: ${tx.hash}`);
+
+      // Wait for transaction to be confirmed
+      const receipt = await tx.wait();
+      console.log(`[Twitter Airdrop] Transaction confirmed: ${receipt.hash}`);
+
+      // Cache the transaction hash?
+      const txHash = receipt.hash;
       console.log("[Twitter Airdrop] Airdrop sent with tx hash:", txHash);
 
       res.json({
@@ -446,6 +448,51 @@ router.post("/tweetCard", async (req: Request, res: Response) => {
     res.status(400).json({
       success: false,
       error: "Failed to send tweet",
+    });
+  }
+});
+
+// Define the assets directory path
+const ASSETS_DIR = path.join(process.cwd(), "assets");
+
+// Ensure assets directory exists
+if (!fs.existsSync(ASSETS_DIR)) {
+  fs.mkdirSync(ASSETS_DIR, { recursive: true });
+}
+
+// Route to retrieve assets
+router.get("/asset/:filename", async (req: Request, res: Response) => {
+  try {
+    const { filename } = req.params;
+    const filePath = path.join(ASSETS_DIR, filename);
+
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      throw new Error("Asset not found");
+    }
+
+    // Set appropriate headers
+    res.setHeader("Content-Type", "image/jpeg");
+    res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+
+    // Stream the file
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+
+    // Handle errors in the stream
+    fileStream.on("error", (error) => {
+      console.error("[Asset Retrieval] Stream Error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to stream asset",
+      });
+    });
+  } catch (error) {
+    console.error("[Asset Retrieval] Error:", error);
+    res.status(404).json({
+      success: false,
+      error:
+        error instanceof Error ? error.message : "Failed to retrieve asset",
     });
   }
 });
