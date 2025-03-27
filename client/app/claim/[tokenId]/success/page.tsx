@@ -18,9 +18,9 @@ import {
   getVotingStatus,
   formatPercentage,
   formatTimeRemaining,
-  submitVoteForNominee,
   submitNomination,
   getUserTokenBalance,
+  submitVoteForNominee,
 } from "@/app/utils/contractUtils";
 import { getCollablandApiUrl } from "../../../../../server/src/utils";
 import axios from "axios";
@@ -61,6 +61,22 @@ interface VotingStatus {
   totalVotes: number;
 }
 
+interface NomineeVote {
+  nominee_id: number;
+  vote_count: number;
+}
+
+interface VoteRecord {
+  id: string;
+  twitter_username: string;
+  smart_account: string;
+  token_id: string;
+  vote_count: number;
+  invite_code: string;
+  created_at: string;
+  nominee_votes: NomineeVote[];
+}
+
 export default function SuccessPage() {
   const { tokenId } = useParams();
   const searchParams = useSearchParams();
@@ -72,12 +88,9 @@ export default function SuccessPage() {
   const [isLoadingAccount, setIsLoadingAccount] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
-  const [isTweeting, setIsTweeting] = useState(false);
-  const [tweetUrl, setTweetUrl] = useState<string | null>(null);
   const [nominees, setNominees] = useState<Nominee[]>([]);
-  const [isLoadingNominees, setIsLoadingNominees] = useState(false);
+  const [isLoadingNominees, setIsLoadingNominees] = useState(true);
   const [votingError, setVotingError] = useState<string | null>(null);
-  const [upvotedIds, setUpvotedIds] = useState<number[]>([]);
   const [votingStatus, setVotingStatus] = useState<VotingStatus>({
     isVotingOpen: false,
     endTime: null,
@@ -96,7 +109,10 @@ export default function SuccessPage() {
   const [tokenBalance, setTokenBalance] = useState<string>("0");
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [showInviteCode, setShowInviteCode] = useState(false);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
   const nomineesPerPage = 2;
+  const [voteSubmitted, setVoteSubmitted] = useState(false);
 
   // Add effect to clear messages after 7 seconds
   useEffect(() => {
@@ -130,14 +146,6 @@ export default function SuccessPage() {
     if (cachedTxHash) {
       console.log("Using cached transaction hash from session storage");
       setTxHash(cachedTxHash);
-    }
-
-    // Try to load cached tweet URL
-    const cachedTweetKey = `tweet_url_${tokenId}`;
-    const cachedTweetUrl = sessionStorage.getItem(cachedTweetKey);
-    if (cachedTweetUrl) {
-      console.log("Using cached tweet URL from session storage");
-      setTweetUrl(cachedTweetUrl);
     }
   }, [tokenId]);
 
@@ -327,48 +335,6 @@ export default function SuccessPage() {
     }
   };
 
-  const handleTweet = async () => {
-    if (!txHash || !profile) return;
-    setIsTweeting(true);
-    try {
-      // Check if we already have a tweet URL for this token
-      const cachedTweetKey = `tweet_url_${tokenId}`;
-      const cachedTweetUrl = sessionStorage.getItem(cachedTweetKey);
-
-      if (cachedTweetUrl) {
-        console.log("Using cached tweet URL from session storage");
-        setTweetUrl(cachedTweetUrl);
-        return;
-      }
-
-      const token =
-        searchParams.get("token") || sessionStorage.getItem("twitter_token");
-      if (!token) {
-        throw new Error("No token provided");
-      }
-
-      const response = await fetch("/api/auth/twitter/tweetCard", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-auth-token": token,
-        },
-        body: JSON.stringify({ txHash, tokenId }),
-      });
-
-      if (!response.ok) throw new Error("Failed to send tweet");
-      const data = await response.json();
-      setTweetUrl(data.tweetUrl);
-
-      // Cache the tweet URL
-      sessionStorage.setItem(cachedTweetKey, data.tweetUrl);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send tweet");
-    } finally {
-      setIsTweeting(false);
-    }
-  };
-
   useEffect(() => {
     const getNominees = async () => {
       if (txHash) {
@@ -408,61 +374,47 @@ export default function SuccessPage() {
   };
 
   const handleSubmitVote = async () => {
-    // Calculate total votes
-    const totalVotes = Object.values(nomineeVoteCounts).reduce(
-      (sum, count) => sum + count,
-      0
-    );
-
-    if (totalVotes <= 0 || !votingStatus.isVotingOpen) {
-      return;
-    }
-
-    if (isSubmittingVote) {
-      return;
-    }
-
-    setIsSubmittingVote(true);
-    setVotingError(null);
-
     try {
-      if (!smartAccount) {
-        throw new Error("Smart account address not available");
+      if (!profile?.data.username || !smartAccount || !tokenId) {
+        console.error("[Vote] Missing required data");
+        return;
       }
 
+      setIsSubmittingVote(true);
+      setError(null);
+
       // Get all nominees with non-zero votes
-      const nomineesWithVotes = Object.entries(nomineeVoteCounts)
+      const nomineeVotes = Object.entries(nomineeVoteCounts)
         .filter(([_, count]) => count > 0)
         .map(([id, count]) => ({
-          id: parseInt(id),
-          count: count,
+          nominee_id: parseInt(id),
+          vote_count: count,
         }));
 
-      if (nomineesWithVotes.length === 0) {
+      if (nomineeVotes.length === 0) {
         throw new Error("No votes to submit");
       }
 
-      // Extract arrays for bulk voting
-      const nomineeIds = nomineesWithVotes.map(({ id }) => id);
-      const voteCounts = nomineesWithVotes.map(({ count }) => count);
+      // Calculate total vote count
+      const totalVoteCount = nomineeVotes.reduce(
+        (sum, vote) => sum + vote.vote_count,
+        0
+      );
 
-      // Submit all votes in a single transaction
-      const result = await submitVoteForNominee(
-        nomineeIds,
-        voteCounts,
+      // First submit the vote on-chain
+      const voteResult = await submitVoteForNominee(
+        nomineeVotes.map((vote) => vote.nominee_id),
+        nomineeVotes.map((vote) => vote.vote_count),
         smartAccount
       );
 
-      if (result.success) {
-        // Add to upvoted IDs to show as voted in UI
-        setUpvotedIds([...upvotedIds, ...nomineeIds]);
-
+      if (voteResult.success) {
         // Reset all vote counts
         setNomineeVoteCounts({});
 
         // Show success message
         setVotingError(
-          `Successfully submitted ${totalVotes} vote${totalVotes > 1 ? "s" : ""} for ${nomineeIds.length} nominee${nomineeIds.length > 1 ? "s" : ""}.`
+          `Successfully submitted ${totalVoteCount} vote${totalVoteCount > 1 ? "s" : ""} for ${nomineeVotes.length} nominee${nomineeVotes.length > 1 ? "s" : ""}.`
         );
 
         // Show loading state while refreshing data
@@ -492,16 +444,43 @@ export default function SuccessPage() {
           setIsLoadingNominees(false);
           setIsLoadingBalance(false);
         }
-      } else {
-        throw new Error("Failed to submit votes");
+      } else if (!voteResult.success) {
+        throw new Error("Failed to submit vote on-chain");
       }
-    } catch (err) {
-      console.error("Vote submission error:", err);
-      setVotingError(
-        err instanceof Error
-          ? `Failed to submit votes: ${err.message}`
-          : "Failed to submit votes. Please try again."
-      );
+
+      // After successful on-chain vote, record in Supabase
+      const response = await fetch("/api/auth/twitter/record-vote", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: profile.data.username,
+          smartAccount,
+          tokenId,
+          voteCount: totalVoteCount,
+          nomineeVotes,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to record vote in database");
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        setVoteSubmitted(true);
+        setInviteCode(data.data.inviteCode);
+        setShowInviteCode(true);
+
+        // Reset vote counts after successful submission
+        setNomineeVoteCounts({});
+      } else {
+        throw new Error(data.error || "Failed to record vote");
+      }
+    } catch (error) {
+      console.error("[Vote] Error:", error);
+      setError("Failed to submit vote");
     } finally {
       setIsSubmittingVote(false);
     }
@@ -637,6 +616,7 @@ export default function SuccessPage() {
     let pollInterval: NodeJS.Timeout;
 
     const pollData = async () => {
+      // if (txHash) return; // Only poll if we have a transaction hash
       if (!txHash) return; // Only poll if we have a transaction hash
 
       try {
@@ -649,15 +629,6 @@ export default function SuccessPage() {
         // Update nominees while preserving vote counts and upvoted states
         if (fetchedNominees) {
           setNominees((currentNominees) => {
-            // Create a map of current vote counts and upvoted states
-            const currentVoteCounts = currentNominees.reduce(
-              (acc, nominee) => {
-                acc[nominee.id] = nomineeVoteCounts[nominee.id] || 0;
-                return acc;
-              },
-              {} as Record<number, number>
-            );
-
             // Update nominees while preserving vote counts
             return fetchedNominees.map((newNominee) => {
               const existingNominee = currentNominees.find(
@@ -688,7 +659,7 @@ export default function SuccessPage() {
       pollData();
 
       // Set up interval for subsequent polls
-      pollInterval = setInterval(pollData, 5000);
+      pollInterval = setInterval(pollData, 5000000);
     }
 
     // Cleanup function to clear interval when component unmounts
@@ -720,7 +691,7 @@ export default function SuccessPage() {
       pollBalance();
 
       // Set up interval for subsequent polls
-      balanceInterval = setInterval(pollBalance, 5000);
+      balanceInterval = setInterval(pollBalance, 5000000);
     }
 
     // Cleanup function to clear interval when component unmounts
@@ -732,7 +703,7 @@ export default function SuccessPage() {
   }, [smartAccount]);
 
   return (
-    <div className="container mx-auto flex flex-col items-center justify-center min-h-screen p-2 space-y-2">
+    <div className="container mx-auto flex flex-col items-center justify-center min-h-screen p-4 bg-white">
       {!smartAccount && (
         <Card className="w-full max-w-[500px] bg-white border-gray-200">
           <CardHeader className="bg-white py-3">
@@ -960,17 +931,6 @@ export default function SuccessPage() {
                           )}
                       </div>
 
-                      {!isLoadingNominees &&
-                        !showNominationForm &&
-                        votingStatus.totalVotes > 0 && (
-                          <div className="text-xs text-gray-500 text-center">
-                            Total votes:{" "}
-                            {ethers.formatEther(
-                              votingStatus.totalVotes.toString()
-                            )}
-                          </div>
-                        )}
-
                       {votingError && (
                         <div
                           className={`text-xs p-1.5 rounded-md border ${
@@ -1112,165 +1072,267 @@ export default function SuccessPage() {
                           </div>
                         ) : nominees.length > 0 ? (
                           <>
-                            {paginatedNominees.map((nominee) => (
-                              <div
-                                key={nominee.id}
-                                className={`flex items-center justify-between p-2 rounded-lg transition-colors ${
-                                  upvotedIds.includes(nominee.id)
-                                    ? "bg-pink-50 border border-pink-100"
-                                    : "bg-gray-50 hover:bg-gray-100 border border-transparent"
-                                }`}
-                              >
-                                <div className="flex flex-col">
-                                  <div className="flex items-center space-x-1.5">
-                                    <div className="text-xs font-medium">
-                                      {nominee.name}
+                            {showInviteCode ? (
+                              <div className="space-y-2">
+                                <div className="text-center">
+                                  <h3 className="text-lg font-semibold text-green-600 mb-2">
+                                    🎉 Congratulations! 🎉
+                                  </h3>
+                                  <p className="text-sm text-gray-600 mb-4">
+                                    You&apos;ve successfully voted! Here&apos;s
+                                    your exclusive invite code to play with
+                                    agents:
+                                  </p>
+                                  <div className="bg-gray-50 p-4 rounded-lg border-2 border-green-200">
+                                    <div className="flex items-center justify-center space-x-4">
+                                      <code className="text-2xl font-mono font-bold text-green-600">
+                                        {inviteCode}
+                                      </code>
+                                      <button
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(
+                                            inviteCode || ""
+                                          );
+                                          setVotingError(
+                                            "Invite code copied to clipboard!"
+                                          );
+                                          setTimeout(
+                                            () => setVotingError(null),
+                                            3000
+                                          );
+                                        }}
+                                        className="p-2 text-gray-500 hover:text-blue-500 hover:bg-blue-50 rounded-full transition-colors"
+                                        title="Copy invite code"
+                                      >
+                                        <svg
+                                          xmlns="http://www.w3.org/2000/svg"
+                                          className="h-5 w-5"
+                                          fill="none"
+                                          viewBox="0 0 24 24"
+                                          stroke="currentColor"
+                                        >
+                                          <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+                                          />
+                                        </svg>
+                                      </button>
                                     </div>
-                                    {nominee.votePercentage > 15 && (
-                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-800">
-                                        {formatPercentage(
-                                          nominee.votePercentage
-                                        )}
-                                      </span>
-                                    )}
                                   </div>
-                                  <div className="text-[10px] text-gray-500">
-                                    @{nominee.twitterHandle}
-                                  </div>
-                                  {nominee.nominatedByTwitter && (
-                                    <div className="text-[10px] text-gray-400">
-                                      Nominated by: @
-                                      {nominee.nominatedByTwitter}
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center">
-                                  <div className="flex items-center mr-2 bg-white border rounded-lg overflow-hidden shadow-sm">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        handleVoteCountChange(nominee.id, -1);
-                                      }}
-                                      disabled={
-                                        !votingStatus.isVotingOpen ||
-                                        (nomineeVoteCounts[nominee.id] || 0) <=
-                                          0
-                                      }
-                                      className="px-1.5 py-0.5 text-gray-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-                                      aria-label="Decrease vote"
+                                  <div className="mt-4">
+                                    <p className="text-sm text-gray-600 mb-2">
+                                      Copy your invite code and claim rewards in
+                                      our Discord community:
+                                    </p>
+                                    <a
+                                      href="https://discord.gg/hellomother"
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center px-4 py-2 bg-[#5865F2] hover:bg-[#4752C4] text-white text-sm rounded-lg transition-colors"
                                     >
-                                      −
+                                      <svg
+                                        className="w-5 h-5 mr-2"
+                                        fill="currentColor"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994.021-.041.001-.09-.041-.106a13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
+                                      </svg>
+                                      Join Discord Community
+                                    </a>
+                                  </div>
+                                  <Button
+                                    onClick={() => setShowInviteCode(false)}
+                                    className="mt-4 py-1.5 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg flex items-center justify-center mx-auto"
+                                  >
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      className="h-4 w-4 mr-1.5"
+                                      viewBox="0 0 20 20"
+                                      fill="currentColor"
+                                    >
+                                      <path
+                                        fillRule="evenodd"
+                                        d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z"
+                                        clipRule="evenodd"
+                                      />
+                                    </svg>
+                                    Back to Voting
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                {paginatedNominees.map((nominee) => (
+                                  <div
+                                    key={nominee.id}
+                                    className={`flex items-center justify-between p-2 rounded-lg transition-colors ${
+                                      votingStatus.isVotingOpen &&
+                                      votingStatus.endTime &&
+                                      nomineeVoteCounts[nominee.id] > 0
+                                        ? "bg-pink-50 border border-pink-100"
+                                        : "bg-gray-50 hover:bg-gray-100 border border-transparent"
+                                    }`}
+                                  >
+                                    <div className="flex flex-col">
+                                      <div className="flex items-center space-x-1.5">
+                                        <div className="text-xs font-medium">
+                                          {nominee.name}
+                                        </div>
+                                        {nominee.votePercentage > 15 && (
+                                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-800">
+                                            {formatPercentage(
+                                              nominee.votePercentage
+                                            )}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-[10px] text-gray-500">
+                                        @{nominee.twitterHandle}
+                                      </div>
+                                      {nominee.nominatedByTwitter && (
+                                        <div className="text-[10px] text-gray-400">
+                                          Nominated by: @
+                                          {nominee.nominatedByTwitter}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="flex items-center">
+                                      <div className="flex items-center mr-2 bg-white border rounded-lg overflow-hidden shadow-sm">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            handleVoteCountChange(
+                                              nominee.id,
+                                              -1
+                                            );
+                                          }}
+                                          disabled={
+                                            !votingStatus.isVotingOpen ||
+                                            (nomineeVoteCounts[nominee.id] ||
+                                              0) <= 0
+                                          }
+                                          className="px-1.5 py-0.5 text-gray-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+                                          aria-label="Decrease vote"
+                                        >
+                                          −
+                                        </button>
+                                        <span className="px-2 py-0.5 font-medium text-xs border-x">
+                                          {nomineeVoteCounts[nominee.id] || 0}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            handleVoteCountChange(
+                                              nominee.id,
+                                              1
+                                            );
+                                          }}
+                                          disabled={!votingStatus.isVotingOpen}
+                                          className="px-1.5 py-0.5 text-gray-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+                                          aria-label="Increase vote"
+                                        >
+                                          +
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+
+                                {/* Pagination Controls */}
+                                {totalPages > 1 && (
+                                  <div className="flex items-center justify-center space-x-2 mt-2">
+                                    <button
+                                      onClick={() =>
+                                        setCurrentPage((prev) =>
+                                          Math.max(prev - 1, 1)
+                                        )
+                                      }
+                                      disabled={currentPage === 1}
+                                      className="px-2 py-1 text-xs rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      Previous
                                     </button>
-                                    <span className="px-2 py-0.5 font-medium text-xs border-x">
-                                      {nomineeVoteCounts[nominee.id] || 0}
+                                    <span className="text-xs text-gray-600">
+                                      Page {currentPage} of {totalPages}
                                     </span>
                                     <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        handleVoteCountChange(nominee.id, 1);
-                                      }}
-                                      disabled={!votingStatus.isVotingOpen}
-                                      className="px-1.5 py-0.5 text-gray-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-                                      aria-label="Increase vote"
+                                      onClick={() =>
+                                        setCurrentPage((prev) =>
+                                          Math.min(prev + 1, totalPages)
+                                        )
+                                      }
+                                      disabled={currentPage === totalPages}
+                                      className="px-2 py-1 text-xs rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                      +
+                                      Next
                                     </button>
                                   </div>
-                                </div>
-                              </div>
-                            ))}
-
-                            {/* Pagination Controls */}
-                            {totalPages > 1 && (
-                              <div className="flex items-center justify-center space-x-2 mt-2">
-                                <button
-                                  onClick={() =>
-                                    setCurrentPage((prev) =>
-                                      Math.max(prev - 1, 1)
-                                    )
-                                  }
-                                  disabled={currentPage === 1}
-                                  className="px-2 py-1 text-xs rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  Previous
-                                </button>
-                                <span className="text-xs text-gray-600">
-                                  Page {currentPage} of {totalPages}
-                                </span>
-                                <button
-                                  onClick={() =>
-                                    setCurrentPage((prev) =>
-                                      Math.min(prev + 1, totalPages)
-                                    )
-                                  }
-                                  disabled={currentPage === totalPages}
-                                  className="px-2 py-1 text-xs rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  Next
-                                </button>
-                              </div>
-                            )}
-
-                            {/* Consolidated Vote Button */}
-                            <div className="mt-2 flex justify-center">
-                              <button
-                                type="button"
-                                onClick={handleSubmitVote}
-                                disabled={
-                                  !votingStatus.isVotingOpen ||
-                                  Object.values(nomineeVoteCounts).reduce(
-                                    (sum, count) => sum + count,
-                                    0
-                                  ) === 0 ||
-                                  isSubmittingVote
-                                }
-                                className={`w-full py-1.5 px-3 rounded-lg font-medium text-sm ${
-                                  !votingStatus.isVotingOpen ||
-                                  Object.values(nomineeVoteCounts).reduce(
-                                    (sum, count) => sum + count,
-                                    0
-                                  ) === 0 ||
-                                  isSubmittingVote
-                                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-                                    : "bg-blue-500 text-white hover:bg-blue-600"
-                                }`}
-                              >
-                                {isSubmittingVote ? (
-                                  <div className="flex items-center justify-center">
-                                    <div className="h-3 w-3 mr-1.5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                                    <span>Submitting Votes...</span>
-                                  </div>
-                                ) : (
-                                  `Submit ${Object.values(nomineeVoteCounts).reduce((sum, count) => sum + count, 0)} Votes`
                                 )}
-                              </button>
-                            </div>
 
-                            {/* Nomination Button */}
-                            <button
-                              type="button"
-                              onClick={() => setShowNominationForm(true)}
-                              className="w-full py-1.5 px-3 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg flex items-center justify-center mt-2"
-                            >
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                className="h-4 w-4 mr-1.5"
-                                viewBox="0 0 20 20"
-                                fill="currentColor"
-                              >
-                                <path
-                                  fillRule="evenodd"
-                                  d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                                  clipRule="evenodd"
-                                />
-                              </svg>
-                              Submit New Nomination
-                            </button>
+                                {/* Consolidated Vote Button */}
+                                <div className="mt-2 flex justify-center">
+                                  <button
+                                    type="button"
+                                    onClick={handleSubmitVote}
+                                    disabled={
+                                      !votingStatus.isVotingOpen ||
+                                      Object.values(nomineeVoteCounts).reduce(
+                                        (sum, count) => sum + count,
+                                        0
+                                      ) === 0 ||
+                                      isSubmittingVote
+                                    }
+                                    className={`w-full py-1.5 px-3 rounded-lg font-medium text-sm ${
+                                      !votingStatus.isVotingOpen ||
+                                      Object.values(nomineeVoteCounts).reduce(
+                                        (sum, count) => sum + count,
+                                        0
+                                      ) === 0 ||
+                                      isSubmittingVote
+                                        ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                                        : "bg-blue-500 text-white hover:bg-blue-600"
+                                    }`}
+                                  >
+                                    {isSubmittingVote ? (
+                                      <div className="flex items-center justify-center">
+                                        <div className="h-3 w-3 mr-1.5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                                        <span>Submitting Votes...</span>
+                                      </div>
+                                    ) : (
+                                      `Submit ${Object.values(nomineeVoteCounts).reduce((sum, count) => sum + count, 0)} Votes`
+                                    )}
+                                  </button>
+                                </div>
+
+                                {/* Nomination Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => setShowNominationForm(true)}
+                                  className="w-full py-1.5 px-3 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg flex items-center justify-center mt-2"
+                                >
+                                  <svg
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    className="h-4 w-4 mr-1.5"
+                                    viewBox="0 0 20 20"
+                                    fill="currentColor"
+                                  >
+                                    <path
+                                      fillRule="evenodd"
+                                      d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
+                                      clipRule="evenodd"
+                                    />
+                                  </svg>
+                                  Submit New Nomination
+                                </button>
+                              </>
+                            )}
                           </>
                         ) : (
                           <div className="text-center text-gray-500 bg-gray-50 rounded-lg p-3">
@@ -1304,51 +1366,27 @@ export default function SuccessPage() {
                         )}
                       </div>
                     </div>
-                    {!tweetUrl ? (
+                    {!showInviteCode && (
                       <Button
-                        onClick={handleTweet}
-                        disabled={isTweeting}
-                        className="mt-2 bg-[#1DA1F2] hover:bg-[#1a8cd8] text-white text-sm py-1.5"
-                      >
-                        {isTweeting ? (
-                          <div className="flex items-center space-x-1.5">
-                            <div className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                            <span>Sending Tweet...</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center space-x-1.5">
-                            <svg
-                              className="h-4 w-4"
-                              fill="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z" />
-                            </svg>
-                            <span>Share on Twitter</span>
-                          </div>
-                        )}
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={() => window.open(tweetUrl, "_blank")}
-                        className="mt-2 bg-[#1DA1F2] hover:bg-[#1a8cd8] text-white text-sm py-1.5"
+                        onClick={() => setShowInviteCode(true)}
+                        className="mt-2 bg-green-500 hover:bg-green-600 text-white text-sm py-1.5"
                       >
                         <div className="flex items-center space-x-1.5">
                           <svg
+                            xmlns="http://www.w3.org/2000/svg"
                             className="h-4 w-4"
+                            viewBox="0 0 20 20"
                             fill="currentColor"
-                            viewBox="0 0 24 24"
                           >
-                            <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z" />
+                            <path
+                              fillRule="evenodd"
+                              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z"
+                              clipRule="evenodd"
+                            />
                           </svg>
-                          <span>View Tweet</span>
+                          <span>Claim Rewards</span>
                         </div>
                       </Button>
-                    )}
-                    {tweetUrl && (
-                      <div className="text-xs text-green-500 mt-1">
-                        🎉 Tweet sent successfully!
-                      </div>
                     )}
                   </div>
                 </div>
@@ -1356,6 +1394,14 @@ export default function SuccessPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+      {voteSubmitted && (
+        <div className="mt-4 p-4 bg-green-100 text-green-700 rounded">
+          Vote submitted successfully!
+        </div>
+      )}
+      {error && (
+        <div className="mt-4 p-4 bg-red-100 text-red-700 rounded">{error}</div>
       )}
     </div>
   );

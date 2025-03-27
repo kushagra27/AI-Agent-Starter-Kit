@@ -284,20 +284,20 @@ export const submitVoteForNominee = async (
       try {
         // Submit the user operation to execute the vote
         const { data } = await client.post(
-        `${v2ApiUrl}/platform/evm/submitUserOperation?chainId=84532&platform=twitter`, // 84532 is Base Sepolia
-        payload,
-        {
-          headers: {
-            "X-ACCESS-TOKEN": accessToken,
-            "X-API-KEY": process.env.NEXT_PUBLIC_COLLABLAND_API_KEY! || "",
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-        }
-      );
+          `${v2ApiUrl}/platform/evm/submitUserOperation?chainId=84532&platform=twitter`, // 84532 is Base Sepolia
+          payload,
+          {
+            headers: {
+              "X-ACCESS-TOKEN": accessToken,
+              "X-API-KEY": process.env.NEXT_PUBLIC_COLLABLAND_API_KEY! || "",
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+          }
+        );
 
-      userOpData = data;
-      userOpHash = data.userOperationHash;
+        userOpData = data;
+        userOpHash = data.userOperationHash;
 
         if (userOpHash) {
           console.log("UserOperation submitted successfully:", userOpData);

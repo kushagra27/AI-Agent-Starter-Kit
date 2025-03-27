@@ -6,6 +6,7 @@ import { CacheService } from "../services/cache.service.js";
 import { getCardHTML, getCollablandApiUrl } from "../utils.js";
 import { IAccountInfo } from "../types.js";
 import { TwitterService } from "../services/twitter.service.js";
+import { SupabaseService } from "../services/supabase.service.js";
 import { ethers } from "ethers";
 import path from "path";
 import fs from "fs";
@@ -59,6 +60,14 @@ function generateCodeChallenge(verifier: string) {
     .replace(/\//g, "_") // Convert '/' to '_'
     .replace(/=/g, ""); // Remove padding '='
 }
+
+// Simplified invite code generation without cache
+const generateUniqueInviteCode = async (): Promise<string> => {
+  // Generate a random 6-character code
+  console.log("Generating unique invite code...");
+  const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+  return code;
+};
 
 /**
  * Initiates Twitter OAuth 2.0 PKCE flow
@@ -451,6 +460,100 @@ router.post("/tweetCard", async (req: Request, res: Response) => {
     });
   }
 });
+
+// Add route to record vote and store in Supabase
+router.post(
+  "/record-vote",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { username, smartAccount, tokenId, voteCount, nomineeVotes } =
+        req.body;
+
+      if (
+        !username ||
+        !smartAccount ||
+        !tokenId ||
+        !voteCount ||
+        !nomineeVotes
+      ) {
+        res.status(400).json({
+          success: false,
+          error: "Missing required fields",
+        });
+        return;
+      }
+
+      // Generate invite code
+      const inviteCode = await generateUniqueInviteCode();
+      console.log("[Invite Code] Generated code:", inviteCode);
+
+      // Record the vote in Supabase
+      const supabase = await SupabaseService.getInstance();
+      const voteRecord = await supabase.recordVote(
+        username,
+        smartAccount,
+        tokenId,
+        voteCount,
+        inviteCode,
+        nomineeVotes
+      );
+
+      // Store the code with the username in cache
+      CacheService.getInstance().set(inviteCode, {
+        username,
+        smartAccount,
+        tokenId,
+        createdAt: Date.now(),
+        used: true,
+      });
+
+      res.json({
+        success: true,
+        data: {
+          ...voteRecord,
+          inviteCode,
+        },
+      });
+    } catch (error) {
+      console.error("[Vote Record] Error recording vote:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to record vote",
+      });
+    }
+  }
+);
+
+// Add route to verify invite code
+router.get(
+  "/verify-invite-code/:code",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { code } = req.params;
+      const supabase = await SupabaseService.getInstance();
+      const voteRecord = await supabase.getVoteByInviteCode(code);
+
+      if (!voteRecord) {
+        res.status(404).json({
+          success: false,
+          error: "Invalid invite code",
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: voteRecord,
+      });
+    } catch (error) {
+      console.error("[Invite Code] Error verifying code:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to verify invite code",
+      });
+    }
+  }
+);
 
 // Define the assets directory path
 const ASSETS_DIR = path.join(process.cwd(), "assets");
