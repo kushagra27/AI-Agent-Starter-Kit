@@ -1123,8 +1123,9 @@ export default function SuccessPage() {
                                   </div>
                                   <div className="mt-4">
                                     <p className="text-sm text-gray-600 mb-2">
-                                      Copy your invite code and claim rewards in
-                                      our Discord community:
+                                      Copy your invite code and claim rewards by
+                                      using command /mother in our Discord
+                                      community:
                                     </p>
                                     <a
                                       href="https://discord.gg/hellomother"
