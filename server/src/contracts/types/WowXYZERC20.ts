@@ -43,7 +43,7 @@ export declare namespace ICoin {
     platformReferrerAmountCurrency: bigint,
     platformReferrerAmountCoin: bigint,
     protocolAmountCurrency: bigint,
-    protocolAmountCoin: bigint,
+    protocolAmountCoin: bigint
   ] & {
     totalAmountCurrency: bigint;
     totalAmountCoin: bigint;
@@ -62,7 +62,7 @@ export declare namespace ICoin {
 
   export type MarketStateStructOutput = [
     marketType: bigint,
-    marketAddress: string,
+    marketAddress: string
   ] & { marketType: bigint; marketAddress: string };
 }
 
@@ -174,7 +174,7 @@ export interface WowXYZERC20Interface extends Interface {
       string,
       BigNumberish,
       BigNumberish,
-      BigNumberish,
+      BigNumberish
     ]
   ): string;
   encodeFunctionData(
@@ -225,7 +225,7 @@ export interface WowXYZERC20Interface extends Interface {
       string,
       BigNumberish,
       BigNumberish,
-      BigNumberish,
+      BigNumberish
     ]
   ): string;
   encodeFunctionData(functionFragment: "state", values?: undefined): string;
@@ -351,7 +351,7 @@ export namespace ApprovalEvent {
   export type InputTuple = [
     owner: AddressLike,
     spender: AddressLike,
-    value: BigNumberish,
+    value: BigNumberish
   ];
   export type OutputTuple = [owner: string, spender: string, value: bigint];
   export interface OutputObject {
@@ -374,7 +374,7 @@ export namespace CoinBuyEvent {
     currency: AddressLike,
     amountFee: BigNumberish,
     amountSold: BigNumberish,
-    comment: string,
+    comment: string
   ];
   export type OutputTuple = [
     buyer: string,
@@ -384,7 +384,7 @@ export namespace CoinBuyEvent {
     currency: string,
     amountFee: bigint,
     amountSold: bigint,
-    comment: string,
+    comment: string
   ];
   export interface OutputObject {
     buyer: string;
@@ -408,14 +408,14 @@ export namespace CoinMarketRewardsEvent {
     platformReferrer: AddressLike,
     protocolRewardRecipient: AddressLike,
     currency: AddressLike,
-    marketRewards: ICoin.MarketRewardsStruct,
+    marketRewards: ICoin.MarketRewardsStruct
   ];
   export type OutputTuple = [
     creatorPayoutAddress: string,
     platformReferrer: string,
     protocolRewardRecipient: string,
     currency: string,
-    marketRewards: ICoin.MarketRewardsStructOutput,
+    marketRewards: ICoin.MarketRewardsStructOutput
   ];
   export interface OutputObject {
     creatorPayoutAddress: string;
@@ -439,7 +439,7 @@ export namespace CoinSellEvent {
     currency: AddressLike,
     amountFee: BigNumberish,
     amountPurchased: BigNumberish,
-    comment: string,
+    comment: string
   ];
   export type OutputTuple = [
     seller: string,
@@ -449,7 +449,7 @@ export namespace CoinSellEvent {
     currency: string,
     amountFee: bigint,
     amountPurchased: bigint,
-    comment: string,
+    comment: string
   ];
   export interface OutputObject {
     seller: string;
@@ -477,7 +477,7 @@ export namespace CoinTradeRewardsEvent {
     platformReferrerReward: BigNumberish,
     orderReferrerReward: BigNumberish,
     protocolReward: BigNumberish,
-    currency: AddressLike,
+    currency: AddressLike
   ];
   export type OutputTuple = [
     creatorPayoutRecipient: string,
@@ -488,7 +488,7 @@ export namespace CoinTradeRewardsEvent {
     platformReferrerReward: bigint,
     orderReferrerReward: bigint,
     protocolReward: bigint,
-    currency: string,
+    currency: string
   ];
   export interface OutputObject {
     creatorPayoutRecipient: string;
@@ -513,14 +513,14 @@ export namespace CoinTransferEvent {
     recipient: AddressLike,
     amount: BigNumberish,
     senderBalance: BigNumberish,
-    recipientBalance: BigNumberish,
+    recipientBalance: BigNumberish
   ];
   export type OutputTuple = [
     sender: string,
     recipient: string,
     amount: bigint,
     senderBalance: bigint,
-    recipientBalance: bigint,
+    recipientBalance: bigint
   ];
   export interface OutputObject {
     sender: string;
@@ -551,7 +551,7 @@ export namespace TransferEvent {
   export type InputTuple = [
     from: AddressLike,
     to: AddressLike,
-    value: BigNumberish,
+    value: BigNumberish
   ];
   export type OutputTuple = [from: string, to: string, value: bigint];
   export interface OutputObject {
@@ -572,7 +572,7 @@ export namespace WowMarketGraduatedEvent {
     totalEthLiquidity: BigNumberish,
     totalTokenLiquidity: BigNumberish,
     lpPositionId: BigNumberish,
-    marketType: BigNumberish,
+    marketType: BigNumberish
   ];
   export type OutputTuple = [
     tokenAddress: string,
@@ -580,7 +580,7 @@ export namespace WowMarketGraduatedEvent {
     totalEthLiquidity: bigint,
     totalTokenLiquidity: bigint,
     lpPositionId: bigint,
-    marketType: bigint,
+    marketType: bigint
   ];
   export interface OutputObject {
     tokenAddress: string;
@@ -608,7 +608,7 @@ export namespace WowTokenBuyEvent {
     buyerTokenBalance: BigNumberish,
     comment: string,
     totalSupply: BigNumberish,
-    marketType: BigNumberish,
+    marketType: BigNumberish
   ];
   export type OutputTuple = [
     buyer: string,
@@ -621,7 +621,7 @@ export namespace WowTokenBuyEvent {
     buyerTokenBalance: bigint,
     comment: string,
     totalSupply: bigint,
-    marketType: bigint,
+    marketType: bigint
   ];
   export interface OutputObject {
     buyer: string;
@@ -651,7 +651,7 @@ export namespace WowTokenFeesEvent {
     tokenCreatorFee: BigNumberish,
     platformReferrerFee: BigNumberish,
     orderReferrerFee: BigNumberish,
-    protocolFee: BigNumberish,
+    protocolFee: BigNumberish
   ];
   export type OutputTuple = [
     tokenCreator: string,
@@ -661,7 +661,7 @@ export namespace WowTokenFeesEvent {
     tokenCreatorFee: bigint,
     platformReferrerFee: bigint,
     orderReferrerFee: bigint,
-    protocolFee: bigint,
+    protocolFee: bigint
   ];
   export interface OutputObject {
     tokenCreator: string;
@@ -691,7 +691,7 @@ export namespace WowTokenSellEvent {
     sellerTokenBalance: BigNumberish,
     comment: string,
     totalSupply: BigNumberish,
-    marketType: BigNumberish,
+    marketType: BigNumberish
   ];
   export type OutputTuple = [
     seller: string,
@@ -704,7 +704,7 @@ export namespace WowTokenSellEvent {
     sellerTokenBalance: bigint,
     comment: string,
     totalSupply: bigint,
-    marketType: bigint,
+    marketType: bigint
   ];
   export interface OutputObject {
     seller: string;
@@ -732,7 +732,7 @@ export namespace WowTokenTransferEvent {
     amount: BigNumberish,
     fromTokenBalance: BigNumberish,
     toTokenBalance: BigNumberish,
-    totalSupply: BigNumberish,
+    totalSupply: BigNumberish
   ];
   export type OutputTuple = [
     from: string,
@@ -740,7 +740,7 @@ export namespace WowTokenTransferEvent {
     amount: bigint,
     fromTokenBalance: bigint,
     toTokenBalance: bigint,
-    totalSupply: bigint,
+    totalSupply: bigint
   ];
   export interface OutputObject {
     from: string;
@@ -839,7 +839,7 @@ export interface WowXYZERC20 extends BaseContract {
       comment: string,
       arg4: BigNumberish,
       minOrderSize: BigNumberish,
-      sqrtPriceLimitX96: BigNumberish,
+      sqrtPriceLimitX96: BigNumberish
     ],
     [bigint],
     "payable"
@@ -859,7 +859,7 @@ export interface WowXYZERC20 extends BaseContract {
       _platformReferrer: AddressLike,
       _tokenURI: string,
       _name: string,
-      _symbol: string,
+      _symbol: string
     ],
     [void],
     "payable"
@@ -895,7 +895,7 @@ export interface WowXYZERC20 extends BaseContract {
       comment: string,
       arg4: BigNumberish,
       minPayoutSize: BigNumberish,
-      sqrtPriceLimitX96: BigNumberish,
+      sqrtPriceLimitX96: BigNumberish
     ],
     [bigint],
     "nonpayable"
@@ -989,7 +989,7 @@ export interface WowXYZERC20 extends BaseContract {
       comment: string,
       arg4: BigNumberish,
       minOrderSize: BigNumberish,
-      sqrtPriceLimitX96: BigNumberish,
+      sqrtPriceLimitX96: BigNumberish
     ],
     [bigint],
     "payable"
@@ -1008,7 +1008,7 @@ export interface WowXYZERC20 extends BaseContract {
       _platformReferrer: AddressLike,
       _tokenURI: string,
       _name: string,
-      _symbol: string,
+      _symbol: string
     ],
     [void],
     "payable"
@@ -1054,7 +1054,7 @@ export interface WowXYZERC20 extends BaseContract {
       comment: string,
       arg4: BigNumberish,
       minPayoutSize: BigNumberish,
-      sqrtPriceLimitX96: BigNumberish,
+      sqrtPriceLimitX96: BigNumberish
     ],
     [bigint],
     "nonpayable"
