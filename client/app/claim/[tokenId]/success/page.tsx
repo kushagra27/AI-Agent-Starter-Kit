@@ -1150,7 +1150,7 @@ export default function SuccessPage() {
                                       in our discord to claim your rewards!
                                     </p>
                                     <a
-                                      href="https://discord.gg/hellomother"
+                                      href="https://discord.gg/MGRFbzTkaE"
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       className="mt-4 mb-4 py-2 px-4 bg-[#5865F2] hover:bg-[#4752C4] text-white text-sm rounded-lg flex items-center justify-center mx-auto w-full max-w-xs transition-colors"
