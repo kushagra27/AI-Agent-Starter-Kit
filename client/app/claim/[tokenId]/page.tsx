@@ -69,30 +69,76 @@ export default function ClaimPage() {
   }
 
   return (
-    <div className="container mx-auto flex items-center justify-center min-h-screen p-4 bg-white">
-      <Card className="w-full max-w-md bg-white border-gray-200">
-        <CardHeader className="bg-white">
-          <CardTitle>Vote on your favorite AI projects</CardTitle>
-          <CardDescription>
-            Token:{" "}
-            <a
-              href={`https://wow.xyz/${tokenId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-500 hover:underline"
-            >
-              {tokenId}
-            </a>
+    <div className="container mx-auto flex items-center justify-center min-h-screen p-4 bg-gradient-to-b from-blue-50 to-indigo-50">
+      <Card className="w-full max-w-md border-0 shadow-lg overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500"></div>
+        <CardHeader className="bg-white border-b border-gray-100 pb-2 pt-4">
+          <div className="flex justify-center mb-1">
+            <div className="text-2xl">🏆</div>
+          </div>
+          <CardTitle className="text-xl font-bold text-center text-blue-800">
+            AI Agents Battle Royale
+          </CardTitle>
+          <CardDescription className="text-center mt-1 text-gray-600 text-sm">
+            Vote in epic head-to-head battles and crown the most legendary AI
+            personality!
           </CardDescription>
         </CardHeader>
-        <CardContent className="bg-white">
-          <TwitterLogin
-            successUri={
-              hostname
-                ? `${hostname}/claim/${tokenId}/success`
-                : `${process.env.NEXT_PUBLIC_HOSTNAME}/claim/${tokenId}/success`
-            }
-          />
+        <CardContent className="bg-white p-4 rounded-b-lg">
+          <div className="space-y-3">
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+              <h3 className="font-semibold text-blue-800 flex items-center text-sm">
+                <span className="text-base mr-1">👑</span> Contest Overview
+              </h3>
+              <p className="text-xs text-gray-700 mt-1">
+                We&apos;re finding the most popular AI agent personalities
+                through community voting. Your votes will determine which agents
+                advance to our platform launch!
+              </p>
+            </div>
+
+            <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100">
+              <h3 className="font-semibold text-indigo-800 flex items-center text-sm">
+                <span className="text-base mr-1">🚀</span> How it works:
+              </h3>
+              <ol className="mt-1 space-y-1 ml-1">
+                <li className="flex items-center text-xs text-gray-700">
+                  <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center bg-indigo-200 text-indigo-700 rounded-full mr-1 text-[10px] font-bold">
+                    1
+                  </span>
+                  <span>Connect with X to authenticate</span>
+                </li>
+                <li className="flex items-center text-xs text-gray-700">
+                  <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center bg-indigo-200 text-indigo-700 rounded-full mr-1 text-[10px] font-bold">
+                    2
+                  </span>
+                  <span>Vote in three exciting head-to-head battles</span>
+                </li>
+                <li className="flex items-center text-xs text-gray-700">
+                  <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center bg-indigo-200 text-indigo-700 rounded-full mr-1 text-[10px] font-bold">
+                    3
+                  </span>
+                  <span>See results and share with your friends</span>
+                </li>
+                <li className="flex items-center text-xs text-gray-700">
+                  <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center bg-indigo-200 text-indigo-700 rounded-full mr-1 text-[10px] font-bold">
+                    4
+                  </span>
+                  <span>Winners advance to the final showcase</span>
+                </li>
+              </ol>
+            </div>
+          </div>
+
+          <div className="mt-3">
+            <TwitterLogin
+              successUri={
+                hostname
+                  ? `${hostname}/claim/${tokenId}/success`
+                  : `${process.env.NEXT_PUBLIC_HOSTNAME}/claim/${tokenId}/success`
+              }
+            />
+          </div>
         </CardContent>
       </Card>
     </div>

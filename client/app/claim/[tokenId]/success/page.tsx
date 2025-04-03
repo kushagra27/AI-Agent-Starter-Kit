@@ -10,9 +10,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+// import { Skeleton } from "@/components/ui/skeleton";
 import { useParams } from "next/navigation";
-import Image from "next/image";
+// import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
   fetchNominees,
@@ -54,6 +54,7 @@ interface Nominee {
   voteCount: number;
   votePercentage: number;
   nominatedByTwitter?: string;
+  imageUrl?: string;
 }
 
 interface VotingStatus {
@@ -62,24 +63,18 @@ interface VotingStatus {
   totalVotes: number;
 }
 
-interface NomineeVote {
-  nominee_id: number;
-  vote_count: number;
+// New interfaces for agent battle
+interface Agent {
+  id: number;
+  name: string;
+  description: string;
+  imageUrl?: string;
 }
 
-interface VoteRecord {
-  id: uuid;
-  twitter_username: string;
-  smart_account: string;
-  token_id: string;
-  vote_count: number;
-  invite_code: string;
-  created_at: string;
-  discord_id: string | null;
-  discord_username: string | null;
-  discord_joined_at: string | null;
-  collabland_evm_address: string | null;
-  nominee_votes: NomineeVote[];
+interface AgentPair {
+  leftAgent: Nominee;
+  rightAgent: Nominee;
+  selectedId: number | null;
 }
 
 export default function SuccessPage() {
@@ -89,10 +84,8 @@ export default function SuccessPage() {
   const [profile, setProfile] = useState<TwitterProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingStep, setLoadingStep] = useState<string>("Authenticating...");
   const [smartAccount, setSmartAccount] = useState<string | null>(null);
-  const [isLoadingAccount, setIsLoadingAccount] = useState(false);
-  const [isSending, setIsSending] = useState(false);
-  const [txHash, setTxHash] = useState<string | null>(null);
   const [nominees, setNominees] = useState<Nominee[]>([]);
   const [isLoadingNominees, setIsLoadingNominees] = useState(true);
   const [votingError, setVotingError] = useState<string | null>(null);
@@ -123,6 +116,119 @@ export default function SuccessPage() {
     width: typeof window !== "undefined" ? window.innerWidth : 0,
     height: typeof window !== "undefined" ? window.innerHeight : 0,
   });
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [setupComplete, setSetupComplete] = useState(false);
+
+  // New state for agent battles
+  const [agentPairs, setAgentPairs] = useState<AgentPair[]>([]);
+  const [currentPairIndex, setCurrentPairIndex] = useState(0);
+  const [allSelectionsComplete, setAllSelectionsComplete] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+
+  // Create agent pairs from nominees
+  useEffect(() => {
+    if (nominees.length >= 2) {
+      // Limit to 3 unique battles with different nominees
+      const pairs: AgentPair[] = [];
+
+      // Create a copy of nominees array to work with
+      const availableNominees = [...nominees];
+
+      // Shuffle the nominees to randomize the selection
+      // availableNominees.sort(() => Math.random() - 0.5);
+
+      // Create up to 3 pairs, ensuring no nominee appears twice
+      // We'll pick nominees in order from the shuffled array
+      const maxPairs = Math.min(3, Math.floor(availableNominees.length / 2));
+
+      for (let i = 0; i < maxPairs; i++) {
+        // Get the next two nominees from the shuffled array
+        const leftAgent = availableNominees[i * 2];
+        const rightAgent = availableNominees[i * 2 + 1];
+
+        // Ensure both agents have valid image URLs
+        [leftAgent, rightAgent].forEach((agent) => {
+          if (!agent.imageUrl) {
+            const map: Record<string, string> = {
+              luna_virtuals: "luna.jpg",
+              elizawakesup: "eliza.jpg",
+              god: "god.jpg",
+              s8n: "s8n.jpg",
+              aixbt_agent: "aixbt.jpg",
+              degenspartanai: "degenspartan.jpg",
+            };
+
+            // Generate image URL with fallback
+            const imageFilename =
+              map[agent.twitterHandle] ||
+              `${agent.name.charAt(0).toLowerCase()}.jpg`;
+            agent.imageUrl = `https://closing-elf-internal.ngrok-free.app/auth/twitter/asset/${imageFilename}`;
+            console.log(
+              `Generated image URL for ${agent.name}:`,
+              agent.imageUrl
+            );
+          }
+        });
+
+        pairs.push({
+          leftAgent,
+          rightAgent,
+          selectedId: null,
+        });
+      }
+
+      setAgentPairs(pairs);
+    }
+  }, [nominees]);
+
+  // Handle agent selection in battle
+  const handleAgentSelection = (nomineeId: number) => {
+    if (currentPairIndex >= agentPairs.length) return;
+
+    // Update the selection for current pair
+    setAgentPairs((prev) => {
+      const updated = [...prev];
+      updated[currentPairIndex].selectedId = nomineeId;
+      return updated;
+    });
+
+    // Increment vote count for the selected nominee
+    setNomineeVoteCounts((prev) => ({
+      ...prev,
+      [nomineeId]: (prev[nomineeId] || 0) + 1,
+    }));
+
+    // Wait a moment to show the selection before moving to next pair
+    setTimeout(() => {
+      if (currentPairIndex < agentPairs.length - 1) {
+        // Move to next pair
+        setCurrentPairIndex((prevIndex) => prevIndex + 1);
+      } else {
+        // All selections complete - set state first, then submit votes
+        setAllSelectionsComplete(true);
+
+        // Add a delay to ensure state updates are complete before submission
+        setTimeout(() => {
+          handleSubmitVote();
+        }, 500);
+      }
+    }, 800);
+  };
+
+  // Reset voting process
+  const resetVoting = () => {
+    setNomineeVoteCounts({});
+    setCurrentPairIndex(0);
+    setAllSelectionsComplete(false);
+
+    // Reset selections in agent pairs
+    setAgentPairs((prev) =>
+      prev.map((pair) => ({
+        ...pair,
+        selectedId: null,
+      }))
+    );
+  };
 
   // Add effect to clear messages after 7 seconds
   useEffect(() => {
@@ -141,113 +247,150 @@ export default function SuccessPage() {
     };
   }, [votingError]);
 
-  // Check for all cached data on component mount to bypass flow steps
+  // Integrated process: Fetch Twitter profile -> Generate PKP -> Get Smart Account -> Send Airdrop -> Get Nominees
   useEffect(() => {
-    // Try to load cached smart account
-    const cachedAccount = sessionStorage.getItem("smart_account");
-    if (cachedAccount) {
-      console.log("Using cached smart account from session storage");
-      setSmartAccount(cachedAccount);
-    }
-
-    // Try to load cached transaction hash
-    const cachedTxKey = `tx_hash_${smartAccount}_${tokenId}`;
-    const cachedTxHash = sessionStorage.getItem(cachedTxKey);
-    if (cachedTxHash) {
-      console.log("Using cached transaction hash from session storage");
-      setTxHash(cachedTxHash);
-    }
-  }, [tokenId]);
-
-  useEffect(() => {
-    const fetchTwitterProfile = async () => {
+    const initializeUserFlow = async () => {
       try {
-        // First check if we already have a profile in session storage
-        const storedProfile = sessionStorage.getItem("twitter_profile");
-        const storedToken = sessionStorage.getItem("twitter_token");
+        setIsLoading(true);
+        setLoadingStep("Authenticating with Twitter...");
 
-        if (storedProfile && storedToken) {
-          console.log("Using stored Twitter profile from session storage");
-          setProfile(JSON.parse(storedProfile));
-          setIsLoading(false);
-          return;
+        // Step 1: Get Twitter profile
+        const profileData = await fetchTwitterProfile();
+        if (!profileData) {
+          throw new Error("Failed to fetch Twitter profile");
         }
 
-        // Otherwise proceed with fetching from API
-        const token = searchParams.get("token");
-        if (!token) {
-          throw new Error("No token provided");
-        }
-        // Store token in session storage
-        sessionStorage.setItem("twitter_token", token);
-
-        const response = await fetch(
-          "/api/auth/twitter/success?token=" + token
-        );
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch profile");
+        // Step 2: Generate PKP if needed
+        setLoadingStep("Generating your secure key...");
+        const pkp = await ensurePkpGenerated();
+        if (!pkp) {
+          throw new Error("Failed to generate secure key");
         }
 
-        const storedPkP = sessionStorage.getItem("pkp");
-        if (!storedPkP) {
-          await generatePkp();
+        // Step 3: Get Smart Account
+        setLoadingStep("Creating your smart account...");
+        const account = await getSmartAccount(profileData);
+        if (!account) {
+          throw new Error("Failed to create smart account");
         }
+        setSmartAccount(account);
 
-        const data = await response.json();
-        setProfile(data.profile);
-        sessionStorage.setItem("twitter_profile", JSON.stringify(data.profile));
+        // Step 4: Send airdrop tokens
+        setLoadingStep("Sending test vote tokens...");
+        const hash = await sendAirdrop(account);
+        if (!hash) {
+          throw new Error("Failed to send test tokens");
+        }
+        setTxHash(hash);
+
+        // Step 5: Load nominees and voting data
+        setLoadingStep("Loading voting options...");
+        await loadNomineesAndVotingData();
+
+        // All done!
+        setIsLoading(false);
+        setSetupComplete(true);
+        setLoadingStep("");
       } catch (err) {
-        // sessionStorage.removeItem("twitter_token");
+        console.error("Error in user flow:", err);
         setError(err instanceof Error ? err.message : "Something went wrong");
-        router.push(`/claim/${tokenId}`);
-      } finally {
         setIsLoading(false);
       }
     };
 
-    fetchTwitterProfile();
-  }, [searchParams]);
+    initializeUserFlow();
+  }, [searchParams, tokenId]);
 
-  const generatePkp = async () => {
-    const client = axios.create({
-      baseURL: process.env.COLLABLAND_API_URL || "https://api.collab.land",
-      headers: {
-        "X-API-KEY": process.env.COLLABLAND_API_KEY || "",
-        "Content-Type": "application/json",
-      },
-      timeout: 5 * 60 * 1000,
-    });
-    const v2ApiUrl = getCollablandApiUrl().replace("v1", "v2");
-    const accessToken = sessionStorage.getItem("twitter_token");
+  const fetchTwitterProfile = async (): Promise<TwitterProfile | null> => {
+    try {
+      // First check if we already have a profile in session storage
+      const storedProfile = sessionStorage.getItem("twitter_profile");
+      const storedToken = sessionStorage.getItem("twitter_token");
 
-    // Submit the user operation to execute the nomination
-    const { data } = await client.get(
-      `${v2ApiUrl}/platform/accounts?platform=twitter`, // 84532 is Base Sepolia
-      {
-        headers: {
-          "X-ACCESS-TOKEN": accessToken || "",
-          "X-API-KEY": process.env.NEXT_PUBLIC_COLLABLAND_API_KEY! || "",
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
+      if (storedProfile && storedToken) {
+        console.log("Using stored Twitter profile from session storage");
+        const profile = JSON.parse(storedProfile);
+        setProfile(profile);
+        return profile;
       }
-    );
 
-    console.log("Generated PKP:", data);
-    sessionStorage.setItem("pkp", data.pkpAddress);
-    // sessionStorage.setItem("evm_address", data.evm.);
+      // Otherwise proceed with fetching from API
+      const token = searchParams.get("token");
+      if (!token) {
+        throw new Error("No token provided");
+      }
+      // Store token in session storage
+      sessionStorage.setItem("twitter_token", token);
+
+      const response = await fetch("/api/auth/twitter/success?token=" + token);
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch profile");
+      }
+
+      const data = await response.json();
+      setProfile(data.profile);
+      sessionStorage.setItem("twitter_profile", JSON.stringify(data.profile));
+      return data.profile;
+    } catch (err) {
+      console.error("Failed to fetch Twitter profile:", err);
+      return null;
+    }
   };
 
-  const handleGetSmartAccount = async () => {
-    setIsLoadingAccount(true);
+  const ensurePkpGenerated = async (): Promise<string | null> => {
+    try {
+      // Check for cached PKP
+      const storedPkP = sessionStorage.getItem("pkp");
+      if (storedPkP) {
+        console.log("Using stored PKP from session storage");
+        return storedPkP;
+      }
+
+      // Generate new PKP
+      const client = axios.create({
+        baseURL: process.env.COLLABLAND_API_URL || "https://api.collab.land",
+        headers: {
+          "X-API-KEY": process.env.COLLABLAND_API_KEY || "",
+          "Content-Type": "application/json",
+        },
+        timeout: 5 * 60 * 1000,
+      });
+
+      const v2ApiUrl = getCollablandApiUrl().replace("v1", "v2");
+      const accessToken = sessionStorage.getItem("twitter_token");
+
+      // Submit the user operation to execute the nomination
+      const { data } = await client.get(
+        `${v2ApiUrl}/platform/accounts?platform=twitter`,
+        {
+          headers: {
+            "X-ACCESS-TOKEN": accessToken || "",
+            "X-API-KEY": process.env.NEXT_PUBLIC_COLLABLAND_API_KEY! || "",
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+        }
+      );
+
+      console.log("Generated PKP:", data);
+      sessionStorage.setItem("pkp", data.pkpAddress);
+      return data.pkpAddress;
+    } catch (err) {
+      console.error("Failed to generate PKP:", err);
+      return null;
+    }
+  };
+
+  const getSmartAccount = async (
+    profile: TwitterProfile
+  ): Promise<string | null> => {
     try {
       // Check if we have a cached smart account address
       const cachedAccount = sessionStorage.getItem("smart_account");
       if (cachedAccount) {
         console.log("Using cached smart account from session storage");
-        setSmartAccount(cachedAccount);
-        return;
+        return cachedAccount;
       }
 
       const response = await fetch(
@@ -255,29 +398,25 @@ export default function SuccessPage() {
       );
       if (!response.ok) throw new Error("Failed to fetch account");
       const { account } = await response.json();
-      setSmartAccount(account);
 
       // Cache the account address
       sessionStorage.setItem("smart_account", account);
+      return account;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to get account");
-    } finally {
-      setIsLoadingAccount(false);
+      console.error("Failed to get smart account:", err);
+      return null;
     }
   };
 
-  const handleSendAirdrop = async () => {
-    if (!smartAccount) return;
-    setIsSending(true);
+  const sendAirdrop = async (account: string): Promise<string | null> => {
     try {
       // Check if we already have a transaction hash for this token
-      const cachedTxKey = `tx_hash_${smartAccount}_${tokenId}`;
+      const cachedTxKey = `tx_hash_${account}_${tokenId}`;
       const cachedTxHash = sessionStorage.getItem(cachedTxKey);
 
       if (cachedTxHash) {
         console.log("Using cached transaction hash from session storage");
-        setTxHash(cachedTxHash);
-        return;
+        return cachedTxHash;
       }
 
       // Get the private key from environment variable
@@ -302,73 +441,91 @@ export default function SuccessPage() {
         wallet
       );
 
-      // Amount to send (1000 tokens with 18 decimals)
+      // Amount to send (10 tokens with 18 decimals)
       const amount = ethers.parseUnits("10", 18);
 
       // Send the transaction
-      const tx = await tokenContract.transfer(smartAccount, amount);
+      const tx = await tokenContract.transfer(account, amount);
       console.log("Transaction sent:", tx.hash);
 
       // Wait for transaction to be mined
       const receipt = await tx.wait();
       console.log("Transaction confirmed:", receipt.hash);
 
-      // Set the transaction hash
-      setTxHash(receipt.hash);
-
       // Cache the transaction hash
       sessionStorage.setItem(cachedTxKey, receipt.hash);
-
-      // Show loading state while refreshing balance
-      setIsLoadingBalance(true);
 
       // Small delay to ensure the blockchain has updated
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      // Refresh token balance
       try {
-        const newBalance = await getUserTokenBalance(smartAccount);
+        const newBalance = await getUserTokenBalance(account);
         setTokenBalance(newBalance);
       } catch (refreshError) {
         console.error("Error refreshing balance after airdrop:", refreshError);
-        setError(
-          "Airdrop successful but failed to refresh balance. Please refresh the page."
-        );
-      } finally {
-        setIsLoadingBalance(false);
       }
+
+      return receipt.hash;
     } catch (err) {
       console.error("Airdrop error:", err);
-      setError(err instanceof Error ? err.message : "Failed to send airdrop");
-    } finally {
-      setIsSending(false);
+      return null;
     }
   };
 
-  useEffect(() => {
-    const getNominees = async () => {
-      if (txHash) {
-        try {
-          setIsLoadingNominees(true);
+  const loadNomineesAndVotingData = async () => {
+    try {
+      setIsLoadingNominees(true);
+      setIsLoadingBalance(true);
 
-          // Fetch both nominees and voting status concurrently
-          const [fetchedNominees, status] = await Promise.all([
-            fetchNominees(),
-            getVotingStatus(),
-          ]);
+      // Fetch both nominees and voting status concurrently
+      const [fetchedNominees, status, balance] = await Promise.all([
+        fetchNominees(),
+        getVotingStatus(),
+        smartAccount ? getUserTokenBalance(smartAccount) : "0",
+      ]);
 
-          setNominees(fetchedNominees || []);
-          setVotingStatus(status);
-        } catch (err) {
-          console.error("Error fetching nominees:", err);
-        } finally {
-          setIsLoadingNominees(false);
-        }
-      }
-    };
+      fetchedNominees.map((n: Nominee) => {
+        const map: Record<string, string> = {
+          luna_virtuals: "luna.jpg",
+          elizawakesup: "eliza.jpg",
+          god: "god.jpg",
+          s8n: "s8n.jpg",
+          aixbt_agent: "aixbt.jpg",
+          degenspartanai: "degenspartan.jpg",
+        };
 
-    getNominees();
-  }, [txHash, tokenId]);
+        // Try the original image service first
+        const imageFilename =
+          map[n.twitterHandle] || `${n.name.charAt(0).toLowerCase()}.jpg`;
+        const primaryImageUrl = `https://closing-elf-internal.ngrok-free.app/auth/twitter/asset/${imageFilename}`;
+
+        // Create a reliable fallback using initial-based avatars from public service
+        // This will be used if the onError handler triggers in the AgentCard component
+        const fallbackImageUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(n.name)}&background=random&size=200&color=fff&bold=true`;
+
+        // Set the primary URL, fallback will be handled by onError in the component
+        n.imageUrl = primaryImageUrl;
+
+        // Log for debugging
+        console.log(
+          `Image URL for ${n.name} (@${n.twitterHandle}):`,
+          n.imageUrl
+        );
+      });
+
+      setNominees(fetchedNominees || []);
+      setVotingStatus(status);
+      setTokenBalance(balance);
+
+      return true;
+    } catch (err) {
+      console.error("Error fetching nominees and voting data:", err);
+      return false;
+    } finally {
+      setIsLoadingNominees(false);
+      setIsLoadingBalance(false);
+    }
+  };
 
   const handleVoteCountChange = (nomineeId: number, change: number) => {
     console.log(`Changing vote for nominee ${nomineeId} by ${change}`);
@@ -386,20 +543,51 @@ export default function SuccessPage() {
   const handleSubmitVote = async () => {
     try {
       if (!profile?.data.username || !smartAccount || !tokenId) {
-        console.error("[Vote] Missing required data");
+        console.error("[Vote] Missing required data:", {
+          username: profile?.data.username,
+          smartAccount,
+          tokenId,
+        });
         return;
       }
 
       setIsSubmittingVote(true);
       setError(null);
 
-      // Get all nominees with non-zero votes
-      const nomineeVotes = Object.entries(nomineeVoteCounts)
+      // Log the current state of agent pairs to debug
+      console.log(
+        "[Vote] Current agent pairs at submission:",
+        JSON.stringify(agentPairs)
+      );
+
+      // Get all nominees with non-zero votes from agent pair selections
+      // This ensures we capture the most recent selections
+      const updatedVoteCounts = { ...nomineeVoteCounts };
+
+      // Make sure we're getting the latest selections from agent pairs
+      agentPairs.forEach((pair, index) => {
+        if (pair.selectedId) {
+          console.log(
+            `[Vote] Including selection from pair ${index}: nominee ID ${pair.selectedId}`
+          );
+          updatedVoteCounts[pair.selectedId] =
+            (updatedVoteCounts[pair.selectedId] || 0) + 1;
+        } else {
+          console.log(`[Vote] No selection for pair ${index}`);
+        }
+      });
+
+      console.log("[Vote] Updated vote counts from pairs:", updatedVoteCounts);
+
+      // Convert to nominee votes format
+      const nomineeVotes = Object.entries(updatedVoteCounts)
         .filter(([_, count]) => count > 0)
         .map(([id, count]) => ({
           nominee_id: parseInt(id),
           vote_count: count,
         }));
+
+      console.log("[Vote] Nominee votes to submit:", nomineeVotes);
 
       if (nomineeVotes.length === 0) {
         throw new Error("No votes to submit");
@@ -411,92 +599,109 @@ export default function SuccessPage() {
         0
       );
 
-      // First submit the vote on-chain
-      const voteResult = await submitVoteForNominee(
-        nomineeVotes.map((vote) => vote.nominee_id),
-        nomineeVotes.map((vote) => vote.vote_count),
-        smartAccount
-      );
+      // Get Twitter access token from session storage
+      const accessToken = sessionStorage.getItem("twitter_token");
+      console.log("[Vote] Access token available:", !!accessToken);
 
-      if (voteResult.success) {
-        // Reset all vote counts
-        setNomineeVoteCounts({});
-
-        // Show success message
-        setVotingError(
-          `Successfully submitted ${totalVoteCount} vote${totalVoteCount > 1 ? "s" : ""} for ${nomineeVotes.length} nominee${nomineeVotes.length > 1 ? "s" : ""}.`
+      if (!accessToken) {
+        console.warn(
+          "[Vote] Access token is missing - vote will be recorded but not submitted on-chain"
         );
-
-        // Show loading state while refreshing data
-        setIsLoadingNominees(true);
-        setIsLoadingBalance(true);
-
-        // Small delay to ensure the blockchain has updated
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-
-        // Refresh both nominees list and token balance
-        try {
-          const [fetchedNominees, status, newBalance] = await Promise.all([
-            fetchNominees(),
-            getVotingStatus(),
-            getUserTokenBalance(smartAccount),
-          ]);
-
-          setNominees(fetchedNominees || []);
-          setVotingStatus(status);
-          setTokenBalance(newBalance);
-        } catch (refreshError) {
-          console.error("Error refreshing data after vote:", refreshError);
-          setVotingError(
-            "Vote submitted but failed to refresh data. Please refresh the page."
-          );
-        } finally {
-          setIsLoadingNominees(false);
-          setIsLoadingBalance(false);
-        }
-      } else if (!voteResult.success) {
-        throw new Error("Failed to submit vote on-chain");
       }
 
-      // After successful on-chain vote, record in Supabase
+      const requestPayload = {
+        username: profile.data.username,
+        smartAccount,
+        tokenId,
+        voteCount: totalVoteCount,
+        nomineeVotes,
+        accessToken, // Include access token for on-chain submission
+      };
+
+      console.log(
+        "[Vote] Sending request payload:",
+        JSON.stringify(requestPayload, null, 2)
+      );
+
+      // Send the vote data to the backend which will handle both on-chain and database submissions
+      console.log(
+        "[Vote] Submitting to endpoint:",
+        "/api/auth/twitter/record-vote"
+      );
       const response = await fetch("/api/auth/twitter/record-vote", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          username: profile.data.username,
-          smartAccount,
-          tokenId,
-          voteCount: totalVoteCount,
-          nomineeVotes,
-        }),
+        body: JSON.stringify(requestPayload),
       });
 
+      console.log("[Vote] Response status:", response.status);
+
+      const responseData = await response.json();
+      console.log("[Vote] Response data:", responseData);
+
       if (!response.ok) {
-        throw new Error("Failed to record vote in database");
+        throw new Error(responseData.error || "Failed to submit vote");
       }
 
-      const data = await response.json();
-      if (data.success) {
-        setVoteSubmitted(true);
-        setInviteCode(data.data.inviteCode);
-        setShowInviteCode(true);
-        // Start confetti effect
-        setShowConfetti(true);
-        // Stop confetti after 5 seconds
-        setTimeout(() => setShowConfetti(false), 5000);
-
-        // Reset vote counts after successful submission
+      if (responseData.success) {
+        // Reset vote counts
         setNomineeVoteCounts({});
+
+        // Show success message and invite code
+        const successMessage = `Successfully submitted ${totalVoteCount} vote${totalVoteCount > 1 ? "s" : ""} for ${nomineeVotes.length} nominee${nomineeVotes.length > 1 ? "s" : ""}.`;
+        setVotingError(successMessage);
+        console.log("[Vote] Success:", successMessage);
+
+        // Set invite code from response
+        const inviteCode = responseData.data.inviteCode;
+        console.log("[Vote] Received invite code:", inviteCode);
+
+        setInviteCode(inviteCode);
+
+        // Add a 3-second delay before showing the invite code
+        setTimeout(() => {
+          setShowInviteCode(true);
+          setShowConfetti(true);
+
+          // Stop confetti after 5 seconds
+          setTimeout(() => setShowConfetti(false), 5000);
+        }, 3000);
+
+        setVoteSubmitted(true);
       } else {
-        throw new Error(data.error || "Failed to record vote");
+        throw new Error(responseData.error || "Failed to submit vote");
       }
     } catch (error) {
-      console.error("[Vote] Error:", error);
-      setError("Failed to submit vote");
+      console.error("[Vote] Error details:", error);
+
+      // More detailed error information
+      if (error instanceof Error) {
+        console.error("[Vote] Error name:", error.name);
+        console.error("[Vote] Error message:", error.message);
+        console.error("[Vote] Error stack:", error.stack);
+      }
+
+      // Try to determine if it's a network issue or server issue
+      if (error instanceof TypeError && error.message.includes("fetch")) {
+        console.error("[Vote] Network error - check your internet connection");
+        setVotingError(
+          "Network error - please check your internet connection and try again"
+        );
+      } else {
+        setVotingError(
+          error instanceof Error
+            ? error.message
+            : "An unknown error occurred while submitting your vote"
+        );
+      }
     } finally {
-      setIsSubmittingVote(false);
+      // Don't reset isSubmittingVote immediately to show loader for 3 seconds
+      // The loading state will persist until showInviteCode is set to true
+      setTimeout(() => {
+        setIsSubmittingVote(false);
+      }, 3000);
     }
   };
 
@@ -731,6 +936,168 @@ export default function SuccessPage() {
     }
   }, []);
 
+  // Agent Card Component
+  const AgentCard = ({
+    nominee,
+    isSelected,
+    onSelect,
+  }: {
+    nominee: Nominee;
+    isSelected: boolean;
+    onSelect: () => void;
+  }) => (
+    <div
+      className={`w-[180px] h-[300px] rounded-lg overflow-hidden cursor-pointer transition-all duration-300 transform hover:scale-102 shadow-md ${
+        isSelected
+          ? "ring-2 ring-yellow-400"
+          : "hover:ring-1 hover:ring-blue-300"
+      }`}
+      onClick={onSelect}
+      style={{
+        background: isSelected ? "#FFEB95" : "#FFFBEB",
+        border: `2px solid ${isSelected ? "#E74C3C" : "#D1D5DB"}`,
+      }}
+    >
+      {/* Card header with agent "team" */}
+      <div
+        className="w-full py-2 px-2 text-center"
+        style={{
+          background: isSelected ? "#E74C3C" : "#3B82F6",
+          borderBottom: `2px solid ${isSelected ? "#C0392B" : "#2563EB"}`,
+        }}
+      >
+        <h3 className="font-extrabold text-base text-white uppercase tracking-wider drop-shadow-sm">
+          {nominee.name.split(" ")[0]}
+        </h3>
+      </div>
+
+      {/* Card image/avatar */}
+      <div className="relative px-2 py-3 bg-white h-[180px] flex items-center justify-center">
+        <div className="w-full h-[160px] overflow-hidden flex items-center justify-center bg-gray-100">
+          {nominee.imageUrl ? (
+            <img
+              src={nominee.imageUrl}
+              alt={nominee.name}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                console.error(
+                  `Failed to load image for ${nominee.name}:`,
+                  nominee.imageUrl
+                );
+                // Replace with UI Avatars fallback on error
+                e.currentTarget.onerror = null; // Prevent infinite error loop
+                e.currentTarget.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(nominee.name)}&background=random&size=200&color=fff&bold=true`;
+              }}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-gray-200">
+              <span className="text-5xl font-bold text-gray-500">
+                {nominee.name.charAt(0)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Selection star */}
+        {isSelected && (
+          <div className="absolute top-2 right-2">
+            <div className="w-10 h-10 flex items-center justify-center bg-yellow-500 text-white text-[9px] font-bold rounded-full transform rotate-12 shadow-md">
+              <div className="transform -rotate-12">
+                ALL
+                <br />
+                STAR
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Card footer with name */}
+      <div
+        className="p-2 text-center flex flex-col items-center justify-center"
+        style={{
+          background: isSelected ? "#FFEB95" : "#FFFBEB",
+          height: "70px",
+        }}
+      >
+        <p className="font-bold text-sm uppercase text-black leading-tight">
+          {nominee.name}
+        </p>
+        <p className="text-xs text-gray-600 mt-1">@{nominee.twitterHandle}</p>
+      </div>
+    </div>
+  );
+
+  // Versus Display Component
+  const VersusDisplay = () => {
+    if (agentPairs.length === 0 || currentPairIndex >= agentPairs.length) {
+      return (
+        <div className="text-center py-8">
+          <p className="text-gray-500">No agents available for voting.</p>
+        </div>
+      );
+    }
+
+    const currentPair = agentPairs[currentPairIndex];
+    const leftSelected = currentPair.selectedId === currentPair.leftAgent.id;
+    const rightSelected = currentPair.selectedId === currentPair.rightAgent.id;
+
+    return (
+      <div className="w-full animate-fadeIn">
+        {/* Progress indicator */}
+        <div className="mb-6 text-center">
+          <p className="text-sm font-medium text-blue-600 mb-2">
+            Battle {currentPairIndex + 1} of {agentPairs.length}
+          </p>
+          <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-blue-500 to-purple-500 h-2.5 rounded-full transition-all duration-500 ease-out"
+              style={{
+                width: `${((currentPairIndex + 1) / agentPairs.length) * 100}%`,
+              }}
+            ></div>
+          </div>
+        </div>
+
+        {/* Agent battle cards - horizontal layout with fixed spacing */}
+        <div className="relative flex items-center justify-center gap-0 px-2 py-4 mb-2">
+          {/* Left agent */}
+          <div className="w-[42%] flex justify-end transform hover:rotate-[-2deg] transition-transform">
+            <div
+              className={`${leftSelected ? "z-10 scale-105" : "z-0"} transition-all duration-300`}
+            >
+              <AgentCard
+                nominee={currentPair.leftAgent}
+                isSelected={leftSelected}
+                onSelect={() => handleAgentSelection(currentPair.leftAgent.id)}
+              />
+            </div>
+          </div>
+
+          {/* Center VS */}
+          <div className="z-20 w-[16%] flex items-center justify-center">
+            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center text-white font-extrabold text-xl shadow-xl border-4 border-white">
+              VS
+            </div>
+          </div>
+
+          {/* Right agent */}
+          <div className="w-[42%] flex justify-start transform hover:rotate-[2deg] transition-transform">
+            <div
+              className={`${rightSelected ? "z-10 scale-105" : "z-0"} transition-all duration-300`}
+            >
+              <AgentCard
+                nominee={currentPair.rightAgent}
+                isSelected={rightSelected}
+                onSelect={() => handleAgentSelection(currentPair.rightAgent.id)}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       {showConfetti && (
@@ -743,699 +1110,304 @@ export default function SuccessPage() {
         />
       )}
       <div className="container mx-auto flex flex-col items-center justify-center min-h-screen p-4 bg-white">
-        {!smartAccount && (
+        {/* Loading UI while setup is in progress */}
+        {isLoading && (
           <Card className="w-full max-w-[500px] bg-white border-gray-200">
             <CardHeader className="bg-white py-3">
               <CardTitle className="text-lg">
-                Twitter Authentication Success
+                Setting up your voting account
               </CardTitle>
               <CardDescription className="text-xs">
-                Token:{" "}
-                <a
-                  href={`https://wow.xyz/${tokenId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-500 hover:underline"
-                >
-                  {tokenId}
-                </a>
+                Please wait while we prepare everything for you
               </CardDescription>
             </CardHeader>
-            <CardContent className="bg-white py-2">
-              {error ? (
-                <div className="text-red-500 text-sm">{error}</div>
-              ) : isLoading ? (
-                <Card className="border-2 bg-white">
-                  <CardContent className="pt-3">
-                    <div className="space-y-3">
-                      <div className="text-xs text-center text-gray-500">
-                        Loading your profile details...
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center space-x-3">
-                          <Skeleton className="h-8 w-8 rounded-full" />
-                          <div className="space-y-1">
-                            <Skeleton className="h-3 w-[150px]" />
-                            <Skeleton className="h-2 w-[100px]" />
-                          </div>
-                        </div>
-                        <Skeleton className="h-12 w-full" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : profile ? (
-                <Card className="border-2 bg-white">
-                  <CardContent className="pt-3">
-                    <div className="space-y-2">
-                      <div className="flex items-center space-x-3">
-                        {profile.data.profile_image_url && (
-                          <Image
-                            src={profile.data.profile_image_url}
-                            alt={profile.data.name}
-                            className="h-8 w-8 rounded-full"
-                            width={32}
-                            height={32}
-                          />
-                        )}
-                        <div>
-                          <div className="text-sm font-medium">
-                            {profile.data.name}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            @{profile.data.username}
-                          </div>
-                        </div>
-                      </div>
-                      {profile.data.description && (
-                        <p className="text-xs text-gray-700 line-clamp-2">
-                          {profile.data.description}
-                        </p>
-                      )}
-                      {profile.data.public_metrics && (
-                        <div className="flex justify-between text-xs text-gray-500">
-                          <span>
-                            {profile.data.public_metrics.followers_count}{" "}
-                            followers
-                          </span>
-                          <span>
-                            {profile.data.public_metrics.following_count}{" "}
-                            following
-                          </span>
-                          <span>
-                            {profile.data.public_metrics.tweet_count} tweets
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : null}
-            </CardContent>
-          </Card>
-        )}
-
-        {profile && !smartAccount && (
-          <Button
-            onClick={handleGetSmartAccount}
-            disabled={isLoadingAccount}
-            className="px-3 py-1.5 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 disabled:bg-gray-400"
-          >
-            {isLoadingAccount
-              ? "Fetching Account..."
-              : "Claim Test Vote Tokens"}
-          </Button>
-        )}
-
-        {isLoadingAccount && (
-          <Card className="w-full max-w-[500px]">
-            <CardContent className="pt-3">
-              <div className="text-center">
-                <Skeleton className="h-4 w-[200px] mx-auto" />
-                <p className="mt-1 text-xs text-gray-500">
-                  Fetching your smart account address...
-                </p>
+            <CardContent className="bg-white py-4">
+              <div className="space-y-4">
+                <div className="flex items-center justify-center">
+                  <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
+                </div>
+                <div className="text-center text-sm font-medium text-blue-600">
+                  {loadingStep}
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div className="bg-blue-600 h-2.5 rounded-full animate-pulse w-full"></div>
+                </div>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {smartAccount && (
-          <Card className="w-full max-w-[500px]">
-            <CardContent className="pt-3">
-              <div className="space-y-2">
-                <div className="break-all text-xs space-y-0.5">
-                  <div className="font-semibold">Smart Account:</div>
-                  <a
-                    href={`https://basescan.org/address/${smartAccount}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-500 hover:underline"
-                  >
-                    {smartAccount}
-                  </a>
+        {/* Error Display */}
+        {!isLoading && error && (
+          <Card className="w-full max-w-[500px] bg-white border-red-200">
+            <CardHeader className="bg-white py-3">
+              <CardTitle className="text-lg text-red-600">
+                Something went wrong
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="bg-white py-4">
+              <div className="text-red-500 text-sm mb-4">{error}</div>
+              <Button
+                onClick={() => router.push(`/claim/${tokenId}`)}
+                className="w-full px-3 py-1.5 bg-blue-500 text-white text-sm rounded hover:bg-blue-600"
+              >
+                Try Again
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
-                  {/* Add token balance display */}
-                  <div className="mt-2 flex items-center justify-between bg-gray-50 p-2 rounded-lg">
-                    <div>
-                      <div className="font-semibold text-xs">
-                        Voting Token Balance:
-                      </div>
-                      <div className="text-sm font-bold text-blue-600">
-                        {isLoadingBalance ? (
-                          <div className="h-4 w-16 bg-gray-200 animate-pulse rounded"></div>
-                        ) : (
-                          `${parseFloat(tokenBalance).toFixed(2)} VOTE`
-                        )}
-                      </div>
+        {/* Voting UI - Only displayed after setup is complete */}
+        {!isLoading && !error && setupComplete && (
+          <Card className="w-full max-w-[600px] border-0 shadow-lg bg-gradient-to-br from-white to-blue-50 overflow-hidden relative">
+            {/* Decorative elements */}
+            <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500 opacity-10 rounded-full -mr-10 -mt-10"></div>
+            <div className="absolute bottom-0 left-0 w-16 h-16 bg-purple-500 opacity-10 rounded-full -ml-8 -mb-8"></div>
+
+            <CardHeader className="bg-transparent py-4 relative z-10 border-b border-blue-100">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500"></div>
+              <CardTitle className="text-xl font-bold text-center bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-purple-600">
+                Agent Battle
+              </CardTitle>
+              <CardDescription className="text-sm text-center text-gray-600">
+                Choose your favorite agent in each head-to-head matchup
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="pt-5 relative z-10">
+              <div className="space-y-5">
+                {/* Vote error display */}
+                {votingError && (
+                  <div
+                    className={`text-xs p-2.5 rounded-md border shadow-sm animate-fadeIn ${
+                      votingError.includes("Successfully")
+                        ? "text-green-600 bg-green-50 border-green-200"
+                        : "text-red-500 bg-red-50 border-red-200"
+                    }`}
+                  >
+                    {votingError}
+                  </div>
+                )}
+
+                {/* Loading nominees or show submission in progress */}
+                {isLoadingNominees || isSubmittingVote ? (
+                  <div className="space-y-4 py-10 animate-pulse">
+                    <div className="flex items-center justify-center">
+                      <div className="h-16 w-16 animate-spin rounded-full border-4 border-blue-500 border-t-transparent shadow-md"></div>
                     </div>
-                    <button
-                      onClick={handleRefreshBalance}
-                      disabled={isLoadingBalance}
-                      className="p-1 bg-blue-100 rounded-full hover:bg-blue-200 transition-colors"
-                      title="Refresh balance"
-                    >
-                      {isLoadingBalance ? (
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></div>
-                      ) : (
+                    <p className="text-center text-blue-600 font-medium">
+                      {isSubmittingVote
+                        ? "Processing your votes..."
+                        : "Loading agents..."}
+                    </p>
+                    {isSubmittingVote && (
+                      <div className="max-w-xs mx-auto">
+                        <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                          <div className="bg-gradient-to-r from-blue-500 to-purple-500 h-2.5 rounded-full animate-progress"></div>
+                        </div>
+                        <p className="text-xs text-center text-gray-500 mt-2">
+                          Your votes are being recorded
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : showInviteCode ? (
+                  <div className="space-y-4 animate-fadeIn">
+                    <div className="text-center">
+                      <div className="inline-block p-3 bg-green-100 rounded-full mb-2">
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
-                          className="h-4 w-4 text-blue-600"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
+                          className="h-8 w-8 text-green-500"
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
                         >
                           <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                            fillRule="evenodd"
+                            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                            clipRule="evenodd"
                           />
                         </svg>
-                      )}
-                    </button>
-                  </div>
-                </div>
-                {!txHash ? (
-                  <>
-                    {error && (
-                      <div className="text-red-500 text-xs">{error}</div>
-                    )}
-                    <Button
-                      onClick={handleSendAirdrop}
-                      disabled={isSending}
-                      className="w-full px-3 py-1.5 bg-green-500 text-white text-sm rounded hover:bg-green-600 disabled:bg-gray-400"
-                    >
-                      {isSending ? "Sending Vote Tokens..." : "Send to Address"}
-                    </Button>
-                  </>
-                ) : (
-                  <div className="rounded-lg border bg-card text-card-foreground shadow-sm p-3">
-                    <div className="flex flex-col space-y-1.5 text-center">
-                      <div className="text-base">
-                        🎊 Test Vote Tokens Sent! 🎊
                       </div>
-                      <div className="text-xs text-gray-500">
-                        View on BaseScan:{" "}
-                        <a
-                          href={`https://basescan.org/tx/${txHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-500 hover:underline break-all"
+                      <h3 className="text-xl font-bold text-green-600 mb-2">
+                        🎉 Congratulations! 🎉
+                      </h3>
+                      <p className="text-sm text-gray-600 mb-4">
+                        You&apos;ve successfully voted! Here&apos;s your
+                        exclusive invite code:
+                      </p>
+                      <div className="bg-gradient-to-r from-green-50 to-blue-50 p-5 rounded-lg border-2 border-green-200 shadow-inner relative">
+                        <code className="text-2xl font-mono font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-600 to-blue-600">
+                          {inviteCode}
+                        </code>
+                        <button
+                          onClick={() => {
+                            try {
+                              if (inviteCode) {
+                                navigator.clipboard
+                                  .writeText(inviteCode)
+                                  .then(() => {
+                                    console.log(
+                                      "Successfully copied to clipboard:",
+                                      inviteCode
+                                    );
+                                    // Show temporary copy feedback
+                                    const target =
+                                      document.getElementById("copy-feedback");
+                                    if (target) {
+                                      target.classList.remove("opacity-0");
+                                      target.classList.add("opacity-100");
+                                      setTimeout(() => {
+                                        target.classList.remove("opacity-100");
+                                        target.classList.add("opacity-0");
+                                      }, 2000);
+                                    }
+                                  })
+                                  .catch((err) => {
+                                    console.error("Failed to copy:", err);
+                                    alert(
+                                      "Failed to copy to clipboard. Please copy manually."
+                                    );
+                                  });
+                              }
+                            } catch (err) {
+                              console.error("Clipboard API error:", err);
+                              // Fallback for browsers that don't support clipboard API
+                              const textArea =
+                                document.createElement("textarea");
+                              textArea.value = inviteCode || "";
+                              document.body.appendChild(textArea);
+                              textArea.focus();
+                              textArea.select();
+                              try {
+                                document.execCommand("copy");
+                                const target =
+                                  document.getElementById("copy-feedback");
+                                if (target) {
+                                  target.classList.remove("opacity-0");
+                                  target.classList.add("opacity-100");
+                                  setTimeout(() => {
+                                    target.classList.remove("opacity-100");
+                                    target.classList.add("opacity-0");
+                                  }, 2000);
+                                }
+                              } catch (e) {
+                                console.error("Fallback copy failed:", e);
+                                alert(
+                                  "Failed to copy. Please select and copy manually."
+                                );
+                              }
+                              document.body.removeChild(textArea);
+                            }
+                          }}
+                          className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1.5 bg-white hover:bg-gray-50 text-blue-600 rounded-md border border-blue-200 transition-all shadow-sm hover:shadow"
+                          aria-label="Copy invite code"
+                          title="Copy invite code"
                         >
-                          {txHash}
-                        </a>
-                      </div>
-                      <div className="mt-3 space-y-2">
-                        <div className="flex justify-between items-center">
-                          <h3 className="text-sm font-semibold">
-                            {isLoadingNominees
-                              ? "Loading Nominees..."
-                              : showNominationForm
-                                ? "Submit New Nomination"
-                                : "Community Nominees"}
-                          </h3>
-
-                          {!isLoadingNominees &&
-                            !showNominationForm &&
-                            votingStatus.isVotingOpen &&
-                            votingStatus.endTime && (
-                              <div className="text-xs text-green-600 font-medium">
-                                {formatTimeRemaining(votingStatus.endTime)}
-                              </div>
-                            )}
-
-                          {!isLoadingNominees &&
-                            !showNominationForm &&
-                            !votingStatus.isVotingOpen && (
-                              <div className="text-xs text-amber-600 font-medium">
-                                Voting is closed
-                              </div>
-                            )}
-                        </div>
-
-                        {/* {!isLoadingNominees &&
-                          !showNominationForm &&
-                          votingStatus.totalVotes > 0 && (
-                            <div className="text-xs text-gray-500 text-center">
-                              Total votes:{" "}
-                              {ethers.formatEther(
-                                votingStatus.totalVotes.toString()
-                              )}
-                            </div>
-                          )} */}
-
-                        {votingError && (
-                          <div
-                            className={`text-xs p-1.5 rounded-md border ${
-                              votingError.includes("Successfully")
-                                ? "text-green-600 bg-green-50 border-green-100"
-                                : "text-red-500 bg-red-50 border-red-100"
-                            }`}
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="h-5 w-5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
                           >
-                            {votingError}
-                          </div>
-                        )}
-
-                        <div className="space-y-1.5">
-                          {isLoadingNominees ? (
-                            Array(2)
-                              .fill(0)
-                              .map((_, i) => (
-                                <div
-                                  key={i}
-                                  className="flex items-center justify-between p-2 bg-gray-50 rounded-lg animate-pulse"
-                                >
-                                  <div className="flex flex-col space-y-1 flex-1">
-                                    <div className="h-3 w-1/2 bg-gray-200 rounded"></div>
-                                    <div className="h-2 w-1/3 bg-gray-200 rounded"></div>
-                                  </div>
-                                  <div className="h-4 w-4 bg-gray-200 rounded-full"></div>
-                                </div>
-                              ))
-                          ) : showNominationForm ? (
-                            <div className="bg-white rounded-lg border p-3 shadow-sm">
-                              <div className="flex justify-between items-center mb-2">
-                                <h4 className="font-medium text-sm">
-                                  Submit New Nomination
-                                </h4>
-                                <button
-                                  type="button"
-                                  onClick={() => setShowNominationForm(false)}
-                                  className="text-gray-500 hover:text-gray-700"
-                                >
-                                  <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    className="h-4 w-4"
-                                    viewBox="0 0 20 20"
-                                    fill="currentColor"
-                                  >
-                                    <path
-                                      fillRule="evenodd"
-                                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                                      clipRule="evenodd"
-                                    />
-                                  </svg>
-                                </button>
-                              </div>
-
-                              <form
-                                onSubmit={handleSubmitNomination}
-                                className="space-y-2"
-                              >
-                                <div>
-                                  <label
-                                    htmlFor="name"
-                                    className="block text-xs font-medium text-gray-700 mb-0.5"
-                                  >
-                                    Name
-                                  </label>
-                                  <input
-                                    type="text"
-                                    id="name"
-                                    name="name"
-                                    value={nominationForm.name}
-                                    onChange={handleNominationInputChange}
-                                    required
-                                    className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="John Doe"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label
-                                    htmlFor="twitterHandle"
-                                    className="block text-xs font-medium text-gray-700 mb-0.5"
-                                  >
-                                    Twitter Handle
-                                  </label>
-                                  <div className="flex">
-                                    <span className="inline-flex items-center px-2 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-xs">
-                                      @
-                                    </span>
-                                    <input
-                                      type="text"
-                                      id="twitterHandle"
-                                      name="twitterHandle"
-                                      value={nominationForm.twitterHandle}
-                                      onChange={handleNominationInputChange}
-                                      required
-                                      className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded-r-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                      placeholder="username"
-                                    />
-                                  </div>
-                                </div>
-
-                                <div className="flex justify-end">
-                                  <button
-                                    type="submit"
-                                    disabled={isSubmittingNomination}
-                                    className="inline-flex justify-center py-1.5 px-3 border border-transparent shadow-sm text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    onClick={handleSubmitNomination}
-                                  >
-                                    {isSubmittingNomination ? (
-                                      <>
-                                        <svg
-                                          className="animate-spin -ml-1 mr-1.5 h-3 w-3 text-white"
-                                          xmlns="http://www.w3.org/2000/svg"
-                                          fill="none"
-                                          viewBox="0 0 24 24"
-                                        >
-                                          <circle
-                                            className="opacity-25"
-                                            cx="12"
-                                            cy="12"
-                                            r="10"
-                                            stroke="currentColor"
-                                            strokeWidth="4"
-                                          ></circle>
-                                          <path
-                                            className="opacity-75"
-                                            fill="currentColor"
-                                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                                          ></path>
-                                        </svg>
-                                        Submitting...
-                                      </>
-                                    ) : (
-                                      "Submit Nomination (5 $VOTE)"
-                                    )}
-                                  </button>
-                                </div>
-                              </form>
-                            </div>
-                          ) : nominees.length > 0 ? (
-                            <>
-                              {showInviteCode ? (
-                                <div className="space-y-2">
-                                  <div className="text-center">
-                                    <h3 className="text-lg font-semibold text-green-600 mb-2">
-                                      🎉 Congratulations! 🎉
-                                    </h3>
-                                    <p className="text-sm text-gray-600 mb-4">
-                                      You&apos;ve successfully voted!
-                                      Here&apos;s your exclusive invite code to
-                                      play with agents:
-                                    </p>
-                                    <div className="bg-gray-50 p-4 rounded-lg border-2 border-green-200">
-                                      <code className="text-2xl font-mono font-bold text-green-600">
-                                        {inviteCode}
-                                      </code>
-                                    </div>
-                                    <p className="text-xs text-gray-500 mt-2">
-                                      Use this code with{" "}
-                                      <code className="text-green-600">
-                                        /invite {inviteCode}
-                                      </code>{" "}
-                                      in our discord to claim your rewards!
-                                    </p>
-                                    <a
-                                      href="https://discord.gg/MGRFbzTkaE"
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="mt-4 mb-4 py-2 px-4 bg-[#5865F2] hover:bg-[#4752C4] text-white text-sm rounded-lg flex items-center justify-center mx-auto w-full max-w-xs transition-colors"
-                                    >
-                                      <svg
-                                        className="w-5 h-5 mr-2"
-                                        fill="currentColor"
-                                        viewBox="0 0 24 24"
-                                      >
-                                        <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515a.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0a12.64 12.64 0 0 0-.617-1.25a.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057a19.9 19.9 0 0 0 5.993 3.03a.078.078 0 0 0 .084-.028a14.09 14.09 0 0 0 1.226-1.994a.076.076 0 0 0-.041-.106a13.107 13.107 0 0 1-1.872-.892a.077.077 0 0 1-.008-.128a10.2 10.2 0 0 0 .372-.292a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127a12.299 12.299 0 0 1-1.873.892a.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028a19.839 19.839 0 0 0 6.002-3.03a.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.956-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.955-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.946 2.418-2.157 2.418z" />
-                                      </svg>
-                                      Join our Discord Community
-                                    </a>
-                                    <Button
-                                      onClick={() => setShowInviteCode(false)}
-                                      className="mt-2 py-1.5 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded-lg flex items-center justify-center mx-auto"
-                                    >
-                                      <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        className="h-4 w-4 mr-1.5"
-                                        viewBox="0 0 20 20"
-                                        fill="currentColor"
-                                      >
-                                        <path
-                                          fillRule="evenodd"
-                                          d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z"
-                                          clipRule="evenodd"
-                                        />
-                                      </svg>
-                                      Back to Voting
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <>
-                                  {paginatedNominees.map((nominee) => (
-                                    <div
-                                      key={nominee.id}
-                                      className={`flex items-center justify-between p-2 rounded-lg transition-colors ${
-                                        votingStatus.isVotingOpen &&
-                                        votingStatus.endTime &&
-                                        nomineeVoteCounts[nominee.id] > 0
-                                          ? "bg-pink-50 border border-pink-100"
-                                          : "bg-gray-50 hover:bg-gray-100 border border-transparent"
-                                      }`}
-                                    >
-                                      <div className="flex flex-col">
-                                        <div className="flex items-center space-x-1.5">
-                                          <div className="text-xs font-medium">
-                                            {nominee.name}
-                                          </div>
-                                          {nominee.votePercentage > 15 && (
-                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 text-green-800">
-                                              {formatPercentage(
-                                                nominee.votePercentage
-                                              )}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="text-[10px] text-gray-500">
-                                          @{nominee.twitterHandle}
-                                        </div>
-                                        {nominee.nominatedByTwitter && (
-                                          <div className="text-[10px] text-gray-400">
-                                            Nominated by: @
-                                            {nominee.nominatedByTwitter}
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      <div className="flex items-center">
-                                        <div className="flex items-center mr-2 bg-white border rounded-lg overflow-hidden shadow-sm">
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.preventDefault();
-                                              e.stopPropagation();
-                                              handleVoteCountChange(
-                                                nominee.id,
-                                                -1
-                                              );
-                                            }}
-                                            disabled={
-                                              !votingStatus.isVotingOpen ||
-                                              (nomineeVoteCounts[nominee.id] ||
-                                                0) <= 0
-                                            }
-                                            className="px-1.5 py-0.5 text-gray-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-                                            aria-label="Decrease vote"
-                                          >
-                                            −
-                                          </button>
-                                          <span className="px-2 py-0.5 font-medium text-xs border-x">
-                                            {nomineeVoteCounts[nominee.id] || 0}
-                                          </span>
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.preventDefault();
-                                              e.stopPropagation();
-                                              handleVoteCountChange(
-                                                nominee.id,
-                                                1
-                                              );
-                                            }}
-                                            disabled={
-                                              !votingStatus.isVotingOpen
-                                            }
-                                            className="px-1.5 py-0.5 text-gray-500 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed text-xs"
-                                            aria-label="Increase vote"
-                                          >
-                                            +
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
-
-                                  {/* Pagination Controls */}
-                                  {totalPages > 1 && (
-                                    <div className="flex items-center justify-center space-x-2 mt-2">
-                                      <button
-                                        onClick={() =>
-                                          setCurrentPage((prev) =>
-                                            Math.max(prev - 1, 1)
-                                          )
-                                        }
-                                        disabled={currentPage === 1}
-                                        className="px-2 py-1 text-xs rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        Previous
-                                      </button>
-                                      <span className="text-xs text-gray-600">
-                                        Page {currentPage} of {totalPages}
-                                      </span>
-                                      <button
-                                        onClick={() =>
-                                          setCurrentPage((prev) =>
-                                            Math.min(prev + 1, totalPages)
-                                          )
-                                        }
-                                        disabled={currentPage === totalPages}
-                                        className="px-2 py-1 text-xs rounded-md bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        Next
-                                      </button>
-                                    </div>
-                                  )}
-
-                                  {/* Consolidated Vote Button */}
-                                  <div className="mt-2 flex justify-center">
-                                    <button
-                                      type="button"
-                                      onClick={handleSubmitVote}
-                                      disabled={
-                                        !votingStatus.isVotingOpen ||
-                                        Object.values(nomineeVoteCounts).reduce(
-                                          (sum, count) => sum + count,
-                                          0
-                                        ) === 0 ||
-                                        isSubmittingVote
-                                      }
-                                      className={`w-full py-1.5 px-3 rounded-lg font-medium text-sm ${
-                                        !votingStatus.isVotingOpen ||
-                                        Object.values(nomineeVoteCounts).reduce(
-                                          (sum, count) => sum + count,
-                                          0
-                                        ) === 0 ||
-                                        isSubmittingVote
-                                          ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-                                          : "bg-blue-500 text-white hover:bg-blue-600"
-                                      }`}
-                                    >
-                                      {isSubmittingVote ? (
-                                        <div className="flex items-center justify-center">
-                                          <div className="h-3 w-3 mr-1.5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-                                          <span>Submitting Votes...</span>
-                                        </div>
-                                      ) : (
-                                        `Submit ${Object.values(nomineeVoteCounts).reduce((sum, count) => sum + count, 0)} Votes`
-                                      )}
-                                    </button>
-                                  </div>
-
-                                  {/* Nomination Button */}
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowNominationForm(true)}
-                                    className="w-full py-1.5 px-3 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg flex items-center justify-center mt-2"
-                                  >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      className="h-4 w-4 mr-1.5"
-                                      viewBox="0 0 20 20"
-                                      fill="currentColor"
-                                    >
-                                      <path
-                                        fillRule="evenodd"
-                                        d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                                        clipRule="evenodd"
-                                      />
-                                    </svg>
-                                    Submit New Nomination
-                                  </button>
-
-                                  {!showInviteCode && (
-                                    <Button
-                                      onClick={() => setShowInviteCode(true)}
-                                      disabled={!voteSubmitted}
-                                      className={`mt-2 ${
-                                        voteSubmitted
-                                          ? "bg-green-500 hover:bg-green-600"
-                                          : "bg-gray-300 cursor-not-allowed"
-                                      } text-white text-sm py-1.5 w-full`}
-                                    >
-                                      <div className="flex items-center space-x-1.5 justify-center">
-                                        <svg
-                                          xmlns="http://www.w3.org/2000/svg"
-                                          className="h-4 w-4"
-                                          viewBox="0 0 20 20"
-                                          fill="currentColor"
-                                        >
-                                          <path
-                                            fillRule="evenodd"
-                                            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z"
-                                            clipRule="evenodd"
-                                          />
-                                        </svg>
-                                        <span>Claim Rewards</span>
-                                      </div>
-                                    </Button>
-                                  )}
-                                </>
-                              )}
-                            </>
-                          ) : (
-                            <div className="text-center text-gray-500 bg-gray-50 rounded-lg p-3">
-                              <div className="text-xl mb-1">🏆</div>
-                              <div className="text-sm font-medium">
-                                No nominees found
-                              </div>
-                              <div className="text-xs mt-0.5">
-                                Nominations may not have started yet.
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setShowNominationForm(true)}
-                                className="mt-2 py-1.5 px-3 bg-green-500 hover:bg-green-600 text-white text-sm rounded-lg flex items-center justify-center mx-auto"
-                              >
-                                <svg
-                                  xmlns="http://www.w3.org/2000/svg"
-                                  className="h-4 w-4 mr-1.5"
-                                  viewBox="0 0 20 20"
-                                  fill="currentColor"
-                                >
-                                  <path
-                                    fillRule="evenodd"
-                                    d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                                    clipRule="evenodd"
-                                  />
-                                </svg>
-                                Submit New Nomination
-                              </button>
-                            </div>
-                          )}
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"
+                            />
+                          </svg>
+                        </button>
+                        <div
+                          id="copy-feedback"
+                          className="absolute left-1/2 transform -translate-x-1/2 -bottom-8 bg-gray-800 text-white px-3 py-1 rounded text-xs opacity-0 transition-opacity duration-300"
+                        >
+                          Copied to clipboard!
                         </div>
                       </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Use this code to invite others to join the voting
+                        process
+                      </p>
+                      <a
+                        href="https://discord.gg/MGRFbzTkaE"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-6 mb-4 py-2.5 px-5 bg-gradient-to-r from-[#5865F2] to-[#4752C4] hover:from-[#4752C4] hover:to-[#3c45a5] text-white text-sm font-medium rounded-lg flex items-center justify-center mx-auto w-full max-w-xs transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                      >
+                        <svg
+                          className="w-5 h-5 mr-2"
+                          fill="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515a.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0a12.64 12.64 0 0 0-.617-1.25a.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057a19.9 19.9 0 0 0 5.993 3.03a.078.078 0 0 0 .084-.028a14.09 14.09 0 0 0 1.226-1.994a.076.076 0 0 0-.041-.106a13.107 13.107 0 0 1-1.872-.892a.077.077 0 0 1-.008-.128a10.2 10.2 0 0 0 .372-.292a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127a12.299 12.299 0 0 1-1.873.892a.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028a19.839 19.839 0 0 0 6.002-3.03a.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.956-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.955-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.946 2.418-2.157 2.418z" />
+                        </svg>
+                        Join our Discord Community
+                      </a>
                     </div>
                   </div>
+                ) : nominees.length === 0 ? (
+                  <div className="text-center text-gray-500 bg-gray-50 rounded-lg p-8 shadow-inner">
+                    <div className="text-3xl mb-2">🏆</div>
+                    <div className="text-base font-medium">
+                      No agents found for voting
+                    </div>
+                    <div className="text-xs mt-1">
+                      Please check back later for available agents.
+                    </div>
+                  </div>
+                ) : (
+                  <VersusDisplay />
                 )}
               </div>
             </CardContent>
           </Card>
         )}
-        {voteSubmitted && (
-          <div className="mt-4 p-4 bg-green-100 text-green-700 rounded">
-            Vote submitted successfully!
-          </div>
-        )}
-        {error && (
-          <div className="mt-4 p-4 bg-red-100 text-red-700 rounded">
-            {error}
-          </div>
-        )}
       </div>
+
+      {/* Update the styles for the background */}
+      <style jsx global>{`
+        body {
+          background: linear-gradient(135deg, #f5f7ff 0%, #e3eeff 100%);
+        }
+
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes progress {
+          0% {
+            width: 0%;
+          }
+          20% {
+            width: 20%;
+          }
+          50% {
+            width: 60%;
+          }
+          80% {
+            width: 85%;
+          }
+          100% {
+            width: 95%;
+          }
+        }
+
+        .animate-fadeIn {
+          animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        .animate-progress {
+          animation: progress 3s ease-in-out forwards;
+        }
+      `}</style>
     </>
   );
 }

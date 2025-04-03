@@ -81,8 +81,12 @@ export const fetchNominees = async (): Promise<Nominee[]> => {
       })
     );
 
+
+    
+
     // Sort by vote count (descending)
-    return nominees.sort((a, b) => b.voteCount - a.voteCount);
+    // return nominees.sort((a, b) => b.voteCount - a.voteCount);
+    return nominees;
   } catch (error) {
     console.error("Error fetching nominees:", error);
     return [];

@@ -217,4 +217,37 @@ export class SupabaseService extends BaseService {
       throw error;
     }
   }
+
+  /**
+   * Update a vote record with transaction hash
+   */
+  async updateVoteTransaction(voteId: string, txHash: string): Promise<void> {
+    try {
+      console.log("[Supabase] Updating vote record with transaction hash:", {
+        voteId,
+        txHash,
+      });
+
+      const { error } = await this.supabase
+        .from("votes")
+        .update({
+          transaction_hash: txHash,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", voteId);
+
+      if (error) {
+        console.error(
+          "[Supabase] Error updating vote with transaction hash:",
+          error
+        );
+        throw error;
+      }
+
+      console.log("[Supabase] Vote record updated with transaction hash");
+    } catch (error) {
+      console.error("[Supabase] Error in updateVoteTransaction:", error);
+      throw error;
+    }
+  }
 }

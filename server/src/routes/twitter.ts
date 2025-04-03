@@ -10,6 +10,8 @@ import { SupabaseService } from "../services/supabase.service.js";
 import { ethers } from "ethers";
 import path from "path";
 import fs from "fs";
+import { VoteService } from "../services/vote.service.js";
+// import { fileURLToPath } from "url";
 
 const router = Router();
 
@@ -461,14 +463,27 @@ router.post("/tweetCard", async (req: Request, res: Response) => {
   }
 });
 
-// Add route to record vote and store in Supabase
+// Record vote endpoint
 router.post(
   "/record-vote",
   async (req: Request, res: Response): Promise<void> => {
     try {
-      const { username, smartAccount, tokenId, voteCount, nomineeVotes } =
-        req.body;
+      console.log("[Vote Record] Received vote submission request");
+      console.log(
+        "[Vote Record] Request body:",
+        JSON.stringify(req.body, null, 2)
+      );
 
+      const {
+        username,
+        smartAccount,
+        tokenId,
+        voteCount,
+        nomineeVotes,
+        accessToken,
+      } = req.body;
+
+      // Validate required fields
       if (
         !username ||
         !smartAccount ||
@@ -476,6 +491,14 @@ router.post(
         !voteCount ||
         !nomineeVotes
       ) {
+        console.error("[Vote Record] Missing required fields:", {
+          username: !!username,
+          smartAccount: !!smartAccount,
+          tokenId: !!tokenId,
+          voteCount: !!voteCount,
+          nomineeVotes: !!nomineeVotes,
+        });
+
         res.status(400).json({
           success: false,
           error: "Missing required fields",
@@ -483,42 +506,203 @@ router.post(
         return;
       }
 
-      // Generate invite code
+      // Check if accessToken is provided for on-chain submission
+      if (!accessToken) {
+        console.warn(
+          "[Vote Record] No access token provided - will skip on-chain submission"
+        );
+      } else {
+        console.log(
+          "[Vote Record] Access token provided for on-chain submission"
+        );
+      }
+
+      // Generate invite code for immediate response
       const inviteCode = await generateUniqueInviteCode();
-      console.log("[Invite Code] Generated code:", inviteCode);
+      console.log("[Vote Record] Generated invite code:", inviteCode);
 
-      // Record the vote in Supabase
-      const supabase = await SupabaseService.getInstance();
-      const voteRecord = await supabase.recordVote(
-        username,
-        smartAccount,
-        tokenId,
-        voteCount,
-        inviteCode,
-        nomineeVotes
-      );
+      // Create cache key for tracking this vote
+      const cacheKey = `vote:${inviteCode}`;
+      console.log("[Vote Record] Cache key:", cacheKey);
 
-      // Store the code with the username in cache
-      CacheService.getInstance().set(inviteCode, {
+      // Store the code with the username in cache immediately
+      const cacheService = CacheService.getInstance();
+      cacheService.set(cacheKey, {
         username,
         smartAccount,
         tokenId,
         createdAt: Date.now(),
         used: true,
       });
+      console.log("[Vote Record] Vote data stored in cache");
 
-      res.json({
+      // Send immediate response with the invite code
+      console.log(
+        "[Vote Record] Sending 202 Accepted response with invite code"
+      );
+      res.status(202).json({
         success: true,
         data: {
-          ...voteRecord,
           inviteCode,
+          message: "Vote submission accepted and processing",
         },
       });
+
+      // Process the vote submission asynchronously
+      (async () => {
+        try {
+          console.log("[Vote Processing] Starting background processing");
+
+          // Use the invite code we already generated above
+          console.log("[Vote Processing] Using invite code:", inviteCode);
+
+          // Initialize services
+          console.log("[Vote Processing] Initializing Supabase service");
+          const supabaseService = await SupabaseService.getInstance();
+
+          // Record the vote in Supabase
+          console.log(
+            "[Vote Processing] Recording vote in database with data:",
+            {
+              username,
+              smartAccount,
+              tokenId,
+              voteCount,
+              nomineeVotesCount: nomineeVotes.length,
+            }
+          );
+
+          const voteRecord = await supabaseService.recordVote(
+            username,
+            smartAccount,
+            tokenId,
+            voteCount,
+            inviteCode,
+            nomineeVotes
+          );
+
+          console.log(
+            "[Vote Processing] Vote recorded in database with ID:",
+            voteRecord.id
+          );
+
+          // If accessToken is provided, submit the vote on-chain
+          if (accessToken) {
+            console.log("[Vote Processing] Preparing on-chain vote submission");
+            try {
+              console.log("[Vote Processing] Initializing VoteService");
+              const voteService = VoteService.getInstance();
+
+              console.log(
+                "[Vote Processing] Calling submitVoteOnChain with parameters:",
+                {
+                  nomineeVotesCount: nomineeVotes.length,
+                  smartAccount,
+                  accessTokenPresent: !!accessToken,
+                }
+              );
+
+              const result = await voteService.submitVoteOnChain(
+                nomineeVotes,
+                smartAccount,
+                accessToken
+              );
+
+              console.log(
+                "[Vote Processing] On-chain submission result:",
+                result
+              );
+
+              if (result.success && result.txHash) {
+                console.log(
+                  "[Vote Processing] Vote submitted on-chain successfully with transaction hash:",
+                  result.txHash
+                );
+
+                // Update the vote record with the transaction hash
+                console.log(
+                  "[Vote Processing] Updating vote record with transaction hash"
+                );
+                // await supabaseService.updateVoteTransaction(
+                //   voteRecord.id,
+                //   result.txHash
+                // );
+                // console.log(
+                //   "[Vote Processing] Vote record updated with transaction hash"
+                // );
+              } else {
+                console.error(
+                  "[Vote Processing] Failed to submit vote on-chain:",
+                  result.error
+                );
+
+                // Log the vote record ID for manual updating if needed
+                console.error(
+                  "[Vote Processing] Vote record ID for manual update:",
+                  voteRecord.id
+                );
+              }
+            } catch (onChainError) {
+              console.error(
+                "[Vote Processing] Error during on-chain submission:",
+                onChainError
+              );
+
+              if (onChainError instanceof Error) {
+                console.error(
+                  "[Vote Processing] Error name:",
+                  onChainError.name
+                );
+                console.error(
+                  "[Vote Processing] Error message:",
+                  onChainError.message
+                );
+                console.error(
+                  "[Vote Processing] Error stack:",
+                  onChainError.stack
+                );
+              }
+
+              // Log the vote record ID for manual updating if needed
+              console.error(
+                "[Vote Processing] Vote record ID for manual update:",
+                voteRecord.id
+              );
+            }
+          } else {
+            console.log(
+              "[Vote Processing] No accessToken provided, skipping on-chain submission"
+            );
+          }
+
+          console.log(
+            "[Vote Processing] Background processing completed successfully"
+          );
+        } catch (error) {
+          console.error(
+            "[Vote Processing] Error in background processing:",
+            error
+          );
+
+          if (error instanceof Error) {
+            console.error("[Vote Processing] Error name:", error.name);
+            console.error("[Vote Processing] Error message:", error.message);
+            console.error("[Vote Processing] Error stack:", error.stack);
+          }
+        }
+      })();
     } catch (error) {
-      console.error("[Vote Record] Error recording vote:", error);
+      console.error("[Vote Record] Error initializing vote recording:", error);
+
+      if (error instanceof Error) {
+        console.error("[Vote Record] Error name:", error.name);
+        console.error("[Vote Record] Error message:", error.message);
+        console.error("[Vote Record] Error stack:", error.stack);
+      }
+
       res.status(500).json({
         success: false,
-        error: "Failed to record vote",
+        error: "Failed to initialize vote recording",
       });
     }
   }
