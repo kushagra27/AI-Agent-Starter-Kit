@@ -10,26 +10,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-// import { Skeleton } from "@/components/ui/skeleton";
 import { useParams } from "next/navigation";
-// import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
   fetchNominees,
   getVotingStatus,
-  formatPercentage,
-  formatTimeRemaining,
-  submitNomination,
   getUserTokenBalance,
-  submitVoteForNominee,
 } from "@/app/utils/contractUtils";
-import { getCollablandApiUrl } from "../../../../../server/src/utils";
-import axios from "axios";
-import { ethers } from "ethers";
-import TestVoteTokenABI from "@/app/utils/TestVoteTokenABI.json";
-
-// Contract addresses
-const VOTE_TOKEN_ADDRESS = "0xb6a7325A1841f4097260599d76AaC8217e8C4762";
 
 interface TwitterProfile {
   data: {
@@ -64,13 +51,6 @@ interface VotingStatus {
 }
 
 // New interfaces for agent battle
-interface Agent {
-  id: number;
-  name: string;
-  description: string;
-  imageUrl?: string;
-}
-
 interface AgentPair {
   leftAgent: Nominee;
   rightAgent: Nominee;
@@ -89,7 +69,7 @@ export default function SuccessPage() {
   const [nominees, setNominees] = useState<Nominee[]>([]);
   const [isLoadingNominees, setIsLoadingNominees] = useState(true);
   const [votingError, setVotingError] = useState<string | null>(null);
-  const [votingStatus, setVotingStatus] = useState<VotingStatus>({
+  const [_votingStatus, setVotingStatus] = useState<VotingStatus>({
     isVotingOpen: false,
     endTime: null,
     totalVotes: 0,
@@ -97,20 +77,12 @@ export default function SuccessPage() {
   const [nomineeVoteCounts, setNomineeVoteCounts] = useState<
     Record<number, number>
   >({});
-  const [showNominationForm, setShowNominationForm] = useState(false);
-  const [nominationForm, setNominationForm] = useState({
-    name: "",
-    twitterHandle: "",
-  });
-  const [isSubmittingNomination, setIsSubmittingNomination] = useState(false);
   const [isSubmittingVote, setIsSubmittingVote] = useState(false);
-  const [tokenBalance, setTokenBalance] = useState<string>("0");
-  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [_tokenBalance, setTokenBalance] = useState<string>("0");
+  const [_isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [showInviteCode, setShowInviteCode] = useState(false);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
-  const nomineesPerPage = 2;
-  const [voteSubmitted, setVoteSubmitted] = useState(false);
+  const [_voteSubmitted, setVoteSubmitted] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const [windowSize, setWindowSize] = useState({
     width: typeof window !== "undefined" ? window.innerWidth : 0,
@@ -122,8 +94,7 @@ export default function SuccessPage() {
   // New state for agent battles
   const [agentPairs, setAgentPairs] = useState<AgentPair[]>([]);
   const [currentPairIndex, setCurrentPairIndex] = useState(0);
-  const [allSelectionsComplete, setAllSelectionsComplete] = useState(false);
-  const [showResults, setShowResults] = useState(false);
+  const [_allSelectionsComplete, setAllSelectionsComplete] = useState(false);
 
   // Create agent pairs from nominees
   useEffect(() => {
@@ -139,7 +110,7 @@ export default function SuccessPage() {
 
       // Create up to 3 pairs, ensuring no nominee appears twice
       // We'll pick nominees in order from the shuffled array
-      const maxPairs = Math.min(3, Math.floor(availableNominees.length / 2));
+      const maxPairs = Math.min(4, Math.floor(availableNominees.length / 2));
 
       for (let i = 0; i < maxPairs; i++) {
         // Get the next two nominees from the shuffled array
@@ -156,6 +127,8 @@ export default function SuccessPage() {
               s8n: "s8n.jpg",
               aixbt_agent: "aixbt.jpg",
               degenspartanai: "degenspartan.jpg",
+              grok: "grok.jpg",
+              AskPerplexity: "perplexity.jpg",
             };
 
             // Generate image URL with fallback
@@ -215,21 +188,6 @@ export default function SuccessPage() {
     }, 800);
   };
 
-  // Reset voting process
-  const resetVoting = () => {
-    setNomineeVoteCounts({});
-    setCurrentPairIndex(0);
-    setAllSelectionsComplete(false);
-
-    // Reset selections in agent pairs
-    setAgentPairs((prev) =>
-      prev.map((pair) => ({
-        ...pair,
-        selectedId: null,
-      }))
-    );
-  };
-
   // Add effect to clear messages after 7 seconds
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
@@ -247,50 +205,96 @@ export default function SuccessPage() {
     };
   }, [votingError]);
 
-  // Integrated process: Fetch Twitter profile -> Generate PKP -> Get Smart Account -> Send Airdrop -> Get Nominees
+  // Function to trigger backend initialization in non-blocking way
+  const triggerBackendInitialization = async (profileData: TwitterProfile) => {
+    try {
+      const token = sessionStorage.getItem("twitter_token");
+      if (!token || !profileData?.data?.id || !tokenId) {
+        console.error("Missing required data for backend initialization");
+        return;
+      }
+
+      // Show loader with message about account preparation for 7 seconds
+      setIsLoading(true);
+      setLoadingStep("Getting your smart account ready...");
+
+      console.log(
+        "Triggering backend initialization for user:",
+        profileData.data.username
+      );
+
+      // Make an API call to the backend to start the initialization process
+      const response = await fetch("/api/auth/twitter/initialize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          twitterId: profileData.data.id,
+          username: profileData.data.username,
+          tokenId,
+          token,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        console.warn("Backend initialization started with issues:", error);
+        // Still continue with the flow, just log the warning
+      } else {
+        const data = await response.json();
+        console.log("Backend initialization started successfully:", data);
+      }
+
+      // Start polling for initialization status in the background
+      startPollingInitializationStatus(profileData.data.id);
+
+      // Show the account preparation message for a total of 7 seconds
+      // with a sequence of different messages
+      setTimeout(() => {
+        setLoadingStep("Prepare to pick your champions...");
+      }, 3000);
+
+      setTimeout(() => {
+        // After 7 seconds, continue with the UI flow regardless of backend status
+        setIsLoading(false);
+        setSetupComplete(true);
+        setLoadingStep("");
+      }, 7000);
+    } catch (err) {
+      console.error("Error triggering backend initialization:", err);
+      // Even if there's an error, continue with the UI flow
+      setTimeout(() => {
+        setIsLoading(false);
+        setSetupComplete(true);
+        setLoadingStep("");
+      }, 7000);
+    }
+  };
+
+  // Integrated process: Fetch Twitter profile -> Then show the UI immediately while backend processes
   useEffect(() => {
     const initializeUserFlow = async () => {
       try {
         setIsLoading(true);
         setLoadingStep("Authenticating with Twitter...");
 
-        // Step 1: Get Twitter profile
+        // Step 1: Get Twitter profile - this remains on the frontend
         const profileData = await fetchTwitterProfile();
         if (!profileData) {
           throw new Error("Failed to fetch Twitter profile");
         }
 
-        // Step 2: Generate PKP if needed
-        setLoadingStep("Generating your secure key...");
-        const pkp = await ensurePkpGenerated();
-        if (!pkp) {
-          throw new Error("Failed to generate secure key");
-        }
+        // Step 2: Immediately trigger backend initialization (non-blocking)
+        triggerBackendInitialization(profileData);
 
-        // Step 3: Get Smart Account
-        setLoadingStep("Creating your smart account...");
-        const account = await getSmartAccount(profileData);
-        if (!account) {
-          throw new Error("Failed to create smart account");
-        }
-        setSmartAccount(account);
+        // Step 3: Load nominees and voting data in the background while showing loader
+        loadNomineesAndVotingData().catch((err) => {
+          console.error("Error loading nominees and voting data:", err);
+        });
 
-        // Step 4: Send airdrop tokens
-        setLoadingStep("Sending test vote tokens...");
-        const hash = await sendAirdrop(account);
-        if (!hash) {
-          throw new Error("Failed to send test tokens");
-        }
-        setTxHash(hash);
-
-        // Step 5: Load nominees and voting data
-        setLoadingStep("Loading voting options...");
-        await loadNomineesAndVotingData();
-
-        // All done!
-        setIsLoading(false);
-        setSetupComplete(true);
-        setLoadingStep("");
+        // Note: We don't set isLoading=false here anymore because triggerBackendInitialization
+        // will handle that after the 7-second loading period
       } catch (err) {
         console.error("Error in user flow:", err);
         setError(err instanceof Error ? err.message : "Something went wrong");
@@ -300,6 +304,90 @@ export default function SuccessPage() {
 
     initializeUserFlow();
   }, [searchParams, tokenId]);
+
+  // Function to poll for backend initialization status and update UI accordingly
+  const startPollingInitializationStatus = (twitterId: string) => {
+    let attempts = 0;
+    const maxAttempts = 20; // Poll for up to 2 minutes (20 attempts × 6 seconds)
+
+    const checkStatus = async () => {
+      if (attempts >= maxAttempts) {
+        console.log("Reached maximum polling attempts, stopping");
+        return;
+      }
+
+      attempts++;
+
+      try {
+        const response = await fetch(
+          `/api/auth/twitter/initialization-status?twitterId=${twitterId}`
+        );
+        if (!response.ok) {
+          console.warn(
+            `Initialization status check failed (attempt ${attempts})`
+          );
+          return setTimeout(checkStatus, 6000);
+        }
+
+        const data = await response.json();
+        console.log("Initialization status:", data);
+
+        // Update status message based on backend progress
+        if (data.status === "pkp_generated") {
+          setLoadingStep("Secure key created! Setting up your account...");
+        } else if (data.status === "account_created") {
+          setLoadingStep("Account ready! Sending test tokens...");
+        } else if (data.status === "airdrop_sent") {
+          setLoadingStep("Tokens sent! Finalizing setup...");
+        }
+
+        if (data.complete) {
+          // Store the results
+          if (data.smartAccount) {
+            setSmartAccount(data.smartAccount);
+            sessionStorage.setItem("smart_account", data.smartAccount);
+          }
+
+          if (data.txHash) {
+            setTxHash(data.txHash);
+            const cachedTxKey = `tx_hash_${data.smartAccount}_${tokenId}`;
+            sessionStorage.setItem(cachedTxKey, data.txHash);
+          }
+
+          // Update token balance if provided
+          if (data.tokenBalance) {
+            setTokenBalance(data.tokenBalance);
+          }
+
+          console.log("Backend initialization completed");
+
+          // Refresh nominations data since we now have updated information
+          loadNomineesAndVotingData();
+
+          return;
+        }
+
+        // Show error message if initialization failed
+        if (data.status === "failed" && data.error) {
+          console.error("Initialization failed:", data.error);
+          // We don't want to block the UI completely, so just set a warning
+          setVotingError(
+            `Note: ${data.error} You can still vote, but on-chain actions might be limited.`
+          );
+          return;
+        }
+
+        // Continue polling if not complete
+        setTimeout(checkStatus, 6000);
+      } catch (err) {
+        console.error("Error checking initialization status:", err);
+        setTimeout(checkStatus, 6000);
+      }
+    };
+
+    // Start polling after a short delay
+    setTimeout(checkStatus, 2000);
+  };
 
   const fetchTwitterProfile = async (): Promise<TwitterProfile | null> => {
     try {
@@ -338,151 +426,23 @@ export default function SuccessPage() {
     }
   };
 
-  const ensurePkpGenerated = async (): Promise<string | null> => {
-    try {
-      // Check for cached PKP
-      const storedPkP = sessionStorage.getItem("pkp");
-      if (storedPkP) {
-        console.log("Using stored PKP from session storage");
-        return storedPkP;
-      }
-
-      // Generate new PKP
-      const client = axios.create({
-        baseURL: process.env.COLLABLAND_API_URL || "https://api.collab.land",
-        headers: {
-          "X-API-KEY": process.env.COLLABLAND_API_KEY || "",
-          "Content-Type": "application/json",
-        },
-        timeout: 5 * 60 * 1000,
-      });
-
-      const v2ApiUrl = getCollablandApiUrl().replace("v1", "v2");
-      const accessToken = sessionStorage.getItem("twitter_token");
-
-      // Submit the user operation to execute the nomination
-      const { data } = await client.get(
-        `${v2ApiUrl}/platform/accounts?platform=twitter`,
-        {
-          headers: {
-            "X-ACCESS-TOKEN": accessToken || "",
-            "X-API-KEY": process.env.NEXT_PUBLIC_COLLABLAND_API_KEY! || "",
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-        }
-      );
-
-      console.log("Generated PKP:", data);
-      sessionStorage.setItem("pkp", data.pkpAddress);
-      return data.pkpAddress;
-    } catch (err) {
-      console.error("Failed to generate PKP:", err);
-      return null;
-    }
-  };
-
-  const getSmartAccount = async (
-    profile: TwitterProfile
-  ): Promise<string | null> => {
-    try {
-      // Check if we have a cached smart account address
-      const cachedAccount = sessionStorage.getItem("smart_account");
-      if (cachedAccount) {
-        console.log("Using cached smart account from session storage");
-        return cachedAccount;
-      }
-
-      const response = await fetch(
-        `/api/auth/twitter/getAccountAddress?userId=${profile?.data.id}`
-      );
-      if (!response.ok) throw new Error("Failed to fetch account");
-      const { account } = await response.json();
-
-      // Cache the account address
-      sessionStorage.setItem("smart_account", account);
-      return account;
-    } catch (err) {
-      console.error("Failed to get smart account:", err);
-      return null;
-    }
-  };
-
-  const sendAirdrop = async (account: string): Promise<string | null> => {
-    try {
-      // Check if we already have a transaction hash for this token
-      const cachedTxKey = `tx_hash_${account}_${tokenId}`;
-      const cachedTxHash = sessionStorage.getItem(cachedTxKey);
-
-      if (cachedTxHash) {
-        console.log("Using cached transaction hash from session storage");
-        return cachedTxHash;
-      }
-
-      // Get the private key from environment variable
-      const privateKey = process.env.NEXT_PUBLIC_PRIVATE_KEY;
-      if (!privateKey) {
-        throw new Error(
-          "Airdrop private key not configured. Please check your environment variables."
-        );
-      }
-
-      // Connect to Base Sepolia
-      const provider = new ethers.JsonRpcProvider(
-        process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL ||
-          "https://sepolia.base.org"
-      );
-      const wallet = new ethers.Wallet(privateKey, provider);
-
-      // Create contract instance
-      const tokenContract = new ethers.Contract(
-        VOTE_TOKEN_ADDRESS,
-        TestVoteTokenABI,
-        wallet
-      );
-
-      // Amount to send (10 tokens with 18 decimals)
-      const amount = ethers.parseUnits("10", 18);
-
-      // Send the transaction
-      const tx = await tokenContract.transfer(account, amount);
-      console.log("Transaction sent:", tx.hash);
-
-      // Wait for transaction to be mined
-      const receipt = await tx.wait();
-      console.log("Transaction confirmed:", receipt.hash);
-
-      // Cache the transaction hash
-      sessionStorage.setItem(cachedTxKey, receipt.hash);
-
-      // Small delay to ensure the blockchain has updated
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-
-      try {
-        const newBalance = await getUserTokenBalance(account);
-        setTokenBalance(newBalance);
-      } catch (refreshError) {
-        console.error("Error refreshing balance after airdrop:", refreshError);
-      }
-
-      return receipt.hash;
-    } catch (err) {
-      console.error("Airdrop error:", err);
-      return null;
-    }
-  };
-
   const loadNomineesAndVotingData = async () => {
     try {
       setIsLoadingNominees(true);
-      setIsLoadingBalance(true);
 
-      // Fetch both nominees and voting status concurrently
-      const [fetchedNominees, status, balance] = await Promise.all([
-        fetchNominees(),
-        getVotingStatus(),
-        smartAccount ? getUserTokenBalance(smartAccount) : "0",
-      ]);
+      // Fetch nominees and voting status
+      const fetchedNominees = await fetchNominees();
+      const status = await getVotingStatus();
+
+      // Try to get balance if we have a smart account
+      if (smartAccount) {
+        try {
+          const balance = await getUserTokenBalance(smartAccount);
+          setTokenBalance(balance);
+        } catch (err) {
+          console.warn("Could not get token balance:", err);
+        }
+      }
 
       fetchedNominees.map((n: Nominee) => {
         const map: Record<string, string> = {
@@ -492,6 +452,8 @@ export default function SuccessPage() {
           s8n: "s8n.jpg",
           aixbt_agent: "aixbt.jpg",
           degenspartanai: "degenspartan.jpg",
+          grok: "grok.jpg",
+          AskPerplexity: "perplexity.jpg",
         };
 
         // Try the original image service first
@@ -501,7 +463,7 @@ export default function SuccessPage() {
 
         // Create a reliable fallback using initial-based avatars from public service
         // This will be used if the onError handler triggers in the AgentCard component
-        const fallbackImageUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(n.name)}&background=random&size=200&color=fff&bold=true`;
+        // const fallbackImageUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(n.name)}&background=random&size=200&color=fff&bold=true`;
 
         // Set the primary URL, fallback will be handled by onError in the component
         n.imageUrl = primaryImageUrl;
@@ -515,7 +477,6 @@ export default function SuccessPage() {
 
       setNominees(fetchedNominees || []);
       setVotingStatus(status);
-      setTokenBalance(balance);
 
       return true;
     } catch (err) {
@@ -523,31 +484,18 @@ export default function SuccessPage() {
       return false;
     } finally {
       setIsLoadingNominees(false);
-      setIsLoadingBalance(false);
     }
-  };
-
-  const handleVoteCountChange = (nomineeId: number, change: number) => {
-    console.log(`Changing vote for nominee ${nomineeId} by ${change}`);
-    setNomineeVoteCounts((prev) => {
-      const currentCount = prev[nomineeId] || 0;
-      const newCount = Math.max(0, currentCount + change); // Prevent negative votes
-      console.log(`New count: ${newCount}`);
-      return {
-        ...prev,
-        [nomineeId]: newCount,
-      };
-    });
   };
 
   const handleSubmitVote = async () => {
     try {
-      if (!profile?.data.username || !smartAccount || !tokenId) {
-        console.error("[Vote] Missing required data:", {
-          username: profile?.data.username,
-          smartAccount,
-          tokenId,
-        });
+      // Check if we have the minimum required data for voting
+      // Allow voting even if smartAccount is not ready yet
+      if (!profile?.data.username) {
+        console.error(
+          "[Vote] Missing Twitter username:",
+          profile?.data.username
+        );
         return;
       }
 
@@ -609,13 +557,18 @@ export default function SuccessPage() {
         );
       }
 
+      // Use smart account if available, otherwise send a placeholder
+      // The backend will handle the case where smart account is not yet ready
+      const currentSmartAccount = smartAccount || "pending";
+
       const requestPayload = {
         username: profile.data.username,
-        smartAccount,
+        smartAccount: currentSmartAccount,
         tokenId,
         voteCount: totalVoteCount,
         nomineeVotes,
         accessToken, // Include access token for on-chain submission
+        initializationInProgress: !smartAccount, // Flag to indicate if initialization is still in progress
       };
 
       console.log(
@@ -670,6 +623,9 @@ export default function SuccessPage() {
         }, 3000);
 
         setVoteSubmitted(true);
+
+        // Force setup to be complete regardless of initialization status
+        setSetupComplete(true);
       } else {
         throw new Error(responseData.error || "Failed to submit vote");
       }
@@ -705,90 +661,6 @@ export default function SuccessPage() {
     }
   };
 
-  const handleNominationInputChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const { name, value } = e.target;
-    setNominationForm((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-  };
-
-  const handleSubmitNomination = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmittingNomination(true);
-    setVotingError(null);
-
-    try {
-      if (!smartAccount) {
-        throw new Error("Smart account address not available");
-      }
-
-      const { name, twitterHandle } = nominationForm;
-
-      const result = await submitNomination(name, twitterHandle, smartAccount);
-
-      if (result.success) {
-        // Show success message
-        setVotingError(
-          `Successfully nominated ${name} (@${twitterHandle}). Tx hash: ${result.txHash?.slice(0, 10)}...`
-        );
-
-        // Reset form
-        setNominationForm({
-          name: "",
-          twitterHandle: "",
-        });
-
-        // Close the form
-        setShowNominationForm(false);
-
-        // Show loading state while refreshing data
-        setIsLoadingNominees(true);
-        setIsLoadingBalance(true);
-
-        // Small delay to ensure the blockchain has updated
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-
-        // Refresh both nominees list and token balance
-        try {
-          const [fetchedNominees, status, newBalance] = await Promise.all([
-            fetchNominees(),
-            getVotingStatus(),
-            getUserTokenBalance(smartAccount),
-          ]);
-
-          setNominees(fetchedNominees || []);
-          setVotingStatus(status);
-          setTokenBalance(newBalance);
-        } catch (refreshError) {
-          console.error(
-            "Error refreshing data after nomination:",
-            refreshError
-          );
-          setVotingError(
-            "Nomination submitted but failed to refresh data. Please refresh the page."
-          );
-        } finally {
-          setIsLoadingNominees(false);
-          setIsLoadingBalance(false);
-        }
-      } else {
-        throw new Error("Failed to submit nomination to the blockchain");
-      }
-    } catch (err) {
-      console.error("Nomination submission error:", err);
-      setVotingError(
-        err instanceof Error
-          ? `Failed to submit nomination: ${err.message}`
-          : "Failed to submit nomination. Please try again."
-      );
-    } finally {
-      setIsSubmittingNomination(false);
-    }
-  };
-
   // Add new useEffect for fetching token balance
   useEffect(() => {
     const fetchTokenBalance = async () => {
@@ -807,28 +679,6 @@ export default function SuccessPage() {
 
     fetchTokenBalance();
   }, [smartAccount, txHash]); // Refresh balance after txHash changes (after airdrop)
-
-  // Add function to manually refresh token balance
-  const handleRefreshBalance = async () => {
-    if (!smartAccount) return;
-
-    setIsLoadingBalance(true);
-    try {
-      const balance = await getUserTokenBalance(smartAccount);
-      setTokenBalance(balance);
-    } catch (err) {
-      console.error("Error refreshing token balance:", err);
-    } finally {
-      setIsLoadingBalance(false);
-    }
-  };
-
-  const paginatedNominees = nominees.slice(
-    (currentPage - 1) * nomineesPerPage,
-    currentPage * nomineesPerPage
-  );
-
-  const totalPages = Math.ceil(nominees.length / nomineesPerPage);
 
   // Add polling effect for nominees and voting status
   useEffect(() => {
@@ -1098,6 +948,70 @@ export default function SuccessPage() {
     );
   };
 
+  // Add keyframes for animations
+  const fadeInAnimation = `
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fadeIn {
+      animation: fadeIn 0.6s ease-out forwards;
+    }
+  `;
+
+  const progressAnimation = `
+    @keyframes progress {
+      0% { width: 0%; }
+      10% { width: 15%; }
+      30% { width: 40%; }
+      50% { width: 65%; }
+      70% { width: 80%; }
+      90% { width: 90%; }
+      95% { width: 95%; } /* Pause at 95% to give a sense of waiting for completion */
+      100% { width: 100%; }
+    }
+    .animate-progress {
+      animation: progress 7s ease-out forwards;
+      background: linear-gradient(90deg, rgba(59,130,246,1) 0%, rgba(147,51,234,1) 50%, rgba(236,72,153,1) 100%);
+      background-size: 200% 100%;
+      animation-timing-function: linear;
+    }
+  `;
+
+  // Rendering for loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-to-b from-gray-900 to-gray-800 text-white">
+        <style jsx>{fadeInAnimation}</style>
+        <style jsx>{progressAnimation}</style>
+        <div className="max-w-md w-full flex flex-col items-center justify-center space-y-6 rounded-xl bg-gray-800/50 p-8 backdrop-blur-sm shadow-2xl border border-gray-700">
+          <div className="flex flex-col items-center text-center space-y-4">
+            <div
+              className={`h-16 w-16 rounded-full border-t-2 border-b-2 border-blue-500 animate-spin shadow-lg ${loadingStep.includes("smart account") ? "animate-pulse" : ""}`}
+            ></div>
+            <h2 className="text-xl font-bold">{loadingStep}</h2>
+
+            {/* Show progress bar for smart account preparation */}
+            {loadingStep.includes("smart account") ||
+            loadingStep.includes("champions") ? (
+              <div className="w-full mt-4">
+                <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 animate-progress"></div>
+                </div>
+                <p className="text-sm text-gray-400 mt-2 animate-fadeIn">
+                  {loadingStep.includes("champions")
+                    ? "Your champions await. Loading voting interface..."
+                    : "Initializing your account in the background..."}
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main UI rendering
   return (
     <>
       {showConfetti && (
@@ -1110,35 +1024,8 @@ export default function SuccessPage() {
         />
       )}
       <div className="container mx-auto flex flex-col items-center justify-center min-h-screen p-4 bg-white">
-        {/* Loading UI while setup is in progress */}
-        {isLoading && (
-          <Card className="w-full max-w-[500px] bg-white border-gray-200">
-            <CardHeader className="bg-white py-3">
-              <CardTitle className="text-lg">
-                Setting up your voting account
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Please wait while we prepare everything for you
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="bg-white py-4">
-              <div className="space-y-4">
-                <div className="flex items-center justify-center">
-                  <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-500 border-t-transparent"></div>
-                </div>
-                <div className="text-center text-sm font-medium text-blue-600">
-                  {loadingStep}
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2.5">
-                  <div className="bg-blue-600 h-2.5 rounded-full animate-pulse w-full"></div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
         {/* Error Display */}
-        {!isLoading && error && (
+        {error && (
           <Card className="w-full max-w-[500px] bg-white border-red-200">
             <CardHeader className="bg-white py-3">
               <CardTitle className="text-lg text-red-600">
@@ -1158,7 +1045,7 @@ export default function SuccessPage() {
         )}
 
         {/* Voting UI - Only displayed after setup is complete */}
-        {!isLoading && !error && setupComplete && (
+        {!error && setupComplete && (
           <Card className="w-full max-w-[600px] border-0 shadow-lg bg-gradient-to-br from-white to-blue-50 overflow-hidden relative">
             {/* Decorative elements */}
             <div className="absolute top-0 right-0 w-20 h-20 bg-blue-500 opacity-10 rounded-full -mr-10 -mt-10"></div>
@@ -1213,6 +1100,7 @@ export default function SuccessPage() {
                   </div>
                 ) : showInviteCode ? (
                   <div className="space-y-4 animate-fadeIn">
+                    {/* Invite code display (kept as is) */}
                     <div className="text-center">
                       <div className="inline-block p-3 bg-green-100 rounded-full mb-2">
                         <svg
@@ -1241,62 +1129,29 @@ export default function SuccessPage() {
                         </code>
                         <button
                           onClick={() => {
-                            try {
-                              if (inviteCode) {
-                                navigator.clipboard
-                                  .writeText(inviteCode)
-                                  .then(() => {
-                                    console.log(
-                                      "Successfully copied to clipboard:",
-                                      inviteCode
-                                    );
-                                    // Show temporary copy feedback
-                                    const target =
-                                      document.getElementById("copy-feedback");
-                                    if (target) {
-                                      target.classList.remove("opacity-0");
-                                      target.classList.add("opacity-100");
-                                      setTimeout(() => {
-                                        target.classList.remove("opacity-100");
-                                        target.classList.add("opacity-0");
-                                      }, 2000);
-                                    }
-                                  })
-                                  .catch((err) => {
-                                    console.error("Failed to copy:", err);
-                                    alert(
-                                      "Failed to copy to clipboard. Please copy manually."
-                                    );
-                                  });
-                              }
-                            } catch (err) {
-                              console.error("Clipboard API error:", err);
-                              // Fallback for browsers that don't support clipboard API
-                              const textArea =
-                                document.createElement("textarea");
-                              textArea.value = inviteCode || "";
-                              document.body.appendChild(textArea);
-                              textArea.focus();
-                              textArea.select();
-                              try {
-                                document.execCommand("copy");
-                                const target =
-                                  document.getElementById("copy-feedback");
-                                if (target) {
-                                  target.classList.remove("opacity-0");
-                                  target.classList.add("opacity-100");
-                                  setTimeout(() => {
-                                    target.classList.remove("opacity-100");
-                                    target.classList.add("opacity-0");
-                                  }, 2000);
-                                }
-                              } catch (e) {
-                                console.error("Fallback copy failed:", e);
-                                alert(
-                                  "Failed to copy. Please select and copy manually."
-                                );
-                              }
-                              document.body.removeChild(textArea);
+                            if (inviteCode) {
+                              navigator.clipboard
+                                .writeText(inviteCode)
+                                .then(() => {
+                                  console.log(
+                                    "Successfully copied to clipboard:",
+                                    inviteCode
+                                  );
+                                  // Show temporary copy feedback
+                                  const target =
+                                    document.getElementById("copy-feedback");
+                                  if (target) {
+                                    target.classList.remove("opacity-0");
+                                    target.classList.add("opacity-100");
+                                    setTimeout(() => {
+                                      target.classList.remove("opacity-100");
+                                      target.classList.add("opacity-0");
+                                    }, 2000);
+                                  }
+                                })
+                                .catch((err) => {
+                                  console.error("Failed to copy:", err);
+                                });
                             }
                           }}
                           className="absolute right-3 top-1/2 transform -translate-y-1/2 p-1.5 bg-white hover:bg-gray-50 text-blue-600 rounded-md border border-blue-200 transition-all shadow-sm hover:shadow"
@@ -1365,7 +1220,7 @@ export default function SuccessPage() {
         )}
       </div>
 
-      {/* Update the styles for the background */}
+      {/* Add the animations to a global style tag */}
       <style jsx global>{`
         body {
           background: linear-gradient(135deg, #f5f7ff 0%, #e3eeff 100%);
@@ -1386,17 +1241,26 @@ export default function SuccessPage() {
           0% {
             width: 0%;
           }
-          20% {
-            width: 20%;
+          10% {
+            width: 15%;
+          }
+          30% {
+            width: 40%;
           }
           50% {
-            width: 60%;
+            width: 65%;
           }
-          80% {
-            width: 85%;
+          70% {
+            width: 80%;
+          }
+          90% {
+            width: 90%;
+          }
+          95% {
+            width: 95%;
           }
           100% {
-            width: 95%;
+            width: 100%;
           }
         }
 
@@ -1405,7 +1269,7 @@ export default function SuccessPage() {
         }
 
         .animate-progress {
-          animation: progress 3s ease-in-out forwards;
+          animation: progress 7s ease-out forwards;
         }
       `}</style>
     </>

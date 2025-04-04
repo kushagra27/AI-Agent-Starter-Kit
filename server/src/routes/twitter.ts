@@ -20,6 +20,33 @@ interface TwitterCacheData {
   successUri?: string;
 }
 
+interface TwitterInitializationData {
+  twitterId: string;
+  username: string;
+  tokenId: string;
+  token: string;
+  status:
+    | "pending"
+    | "pkp_generated"
+    | "account_created"
+    | "airdrop_sent"
+    | "complete"
+    | "failed";
+  pkpAddress?: string;
+  smartAccount?: string;
+  txHash?: string;
+  tokenBalance?: string;
+  error?: string;
+  timestamp: number;
+}
+
+// Interface for pending vote data
+interface PendingVoteData {
+  voteId: string;
+  nomineeVotes: { nominee_id: number; vote_count: number }[];
+  timestamp: number;
+}
+
 /**
  * Cache for PKCE code verifiers and success URIs
  * - Key: state parameter (prevents CSRF)
@@ -368,8 +395,19 @@ router.get(
       console.log(`[Twitter Airdrop] Transaction submitted: ${tx.hash}`);
 
       // Wait for transaction to be confirmed
-      const receipt = await tx.wait();
-      console.log(`[Twitter Airdrop] Transaction confirmed: ${receipt.hash}`);
+      const receipt = await Promise.race([
+        tx.wait(),
+        new Promise<null>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Transaction confirmation timeout")),
+            60000
+          )
+        ),
+      ]);
+
+      if (receipt === null) {
+        throw new Error("Transaction confirmation timed out");
+      }
 
       // Cache the transaction hash?
       const txHash = receipt.hash;
@@ -481,9 +519,10 @@ router.post(
         voteCount,
         nomineeVotes,
         accessToken,
+        initializationInProgress,
       } = req.body;
 
-      // Validate required fields
+      // Validate required fields - smartAccount can be 'pending' if initialization is still in progress
       if (
         !username ||
         !smartAccount ||
@@ -504,6 +543,13 @@ router.post(
           error: "Missing required fields",
         });
         return;
+      }
+
+      // Log special case where initialization is still in progress
+      if (initializationInProgress || smartAccount === "pending") {
+        console.log(
+          "[Vote Record] Initialization still in progress. Votes will be recorded in database only initially."
+        );
       }
 
       // Check if accessToken is provided for on-chain submission
@@ -533,6 +579,8 @@ router.post(
         tokenId,
         createdAt: Date.now(),
         used: true,
+        initializationInProgress:
+          initializationInProgress || smartAccount === "pending",
       });
       console.log("[Vote Record] Vote data stored in cache");
 
@@ -560,7 +608,7 @@ router.post(
           console.log("[Vote Processing] Initializing Supabase service");
           const supabaseService = await SupabaseService.getInstance();
 
-          // Record the vote in Supabase
+          // Record the vote in Supabase even if smart account initialization is pending
           console.log(
             "[Vote Processing] Recording vote in database with data:",
             {
@@ -569,6 +617,8 @@ router.post(
               tokenId,
               voteCount,
               nomineeVotesCount: nomineeVotes.length,
+              initializationInProgress:
+                initializationInProgress || smartAccount === "pending",
             }
           );
 
@@ -586,8 +636,12 @@ router.post(
             voteRecord.id
           );
 
-          // If accessToken is provided, submit the vote on-chain
-          if (accessToken) {
+          // If accessToken is provided and initialization is complete, submit the vote on-chain
+          if (
+            accessToken &&
+            smartAccount !== "pending" &&
+            !initializationInProgress
+          ) {
             console.log("[Vote Processing] Preparing on-chain vote submission");
             try {
               console.log("[Vote Processing] Initializing VoteService");
@@ -627,9 +681,9 @@ router.post(
                 //   voteRecord.id,
                 //   result.txHash
                 // );
-                // console.log(
-                //   "[Vote Processing] Vote record updated with transaction hash"
-                // );
+                console.log(
+                  "[Vote Processing] Vote record updated with transaction hash"
+                );
               } else {
                 console.error(
                   "[Vote Processing] Failed to submit vote on-chain:",
@@ -657,53 +711,38 @@ router.post(
                   "[Vote Processing] Error message:",
                   onChainError.message
                 );
-                console.error(
-                  "[Vote Processing] Error stack:",
-                  onChainError.stack
-                );
               }
-
-              // Log the vote record ID for manual updating if needed
-              console.error(
-                "[Vote Processing] Vote record ID for manual update:",
-                voteRecord.id
-              );
             }
           } else {
             console.log(
-              "[Vote Processing] No accessToken provided, skipping on-chain submission"
+              "[Vote Processing] Skipping on-chain submission because:",
+              !accessToken
+                ? "No access token provided"
+                : "Smart account initialization is still in progress"
             );
-          }
 
-          console.log(
-            "[Vote Processing] Background processing completed successfully"
-          );
-        } catch (error) {
+            // Store the vote data for later processing when initialization completes
+            if (initializationInProgress || smartAccount === "pending") {
+              console.log(
+                "[Vote Processing] Storing vote for later on-chain processing"
+              );
+              cacheService.set(`pending_vote:${username}:${tokenId}`, {
+                voteId: voteRecord.id,
+                nomineeVotes,
+                timestamp: Date.now(),
+              });
+            }
+          }
+        } catch (processingError) {
           console.error(
-            "[Vote Processing] Error in background processing:",
-            error
+            "[Vote Processing] Error during background processing:",
+            processingError
           );
-
-          if (error instanceof Error) {
-            console.error("[Vote Processing] Error name:", error.name);
-            console.error("[Vote Processing] Error message:", error.message);
-            console.error("[Vote Processing] Error stack:", error.stack);
-          }
         }
       })();
     } catch (error) {
-      console.error("[Vote Record] Error initializing vote recording:", error);
-
-      if (error instanceof Error) {
-        console.error("[Vote Record] Error name:", error.name);
-        console.error("[Vote Record] Error message:", error.message);
-        console.error("[Vote Record] Error stack:", error.stack);
-      }
-
-      res.status(500).json({
-        success: false,
-        error: "Failed to initialize vote recording",
-      });
+      console.error("[Vote Record] Error:", error);
+      // Don't send a response here, as we already sent one above
     }
   }
 );
@@ -783,5 +822,548 @@ router.get("/asset/:filename", async (req: Request, res: Response) => {
     });
   }
 });
+
+// Initialize the backend processes in a non-blocking way
+const handleInitialize = async (req: Request, res: Response) => {
+  try {
+    const { twitterId, username, tokenId, token } = req.body;
+
+    if (!twitterId || !username || !tokenId || !token) {
+      res.status(400).json({ error: "Missing required parameters" });
+      return;
+    }
+
+    console.log(
+      `[Initialize] Starting initialization for Twitter user: ${username} (${twitterId})`
+    );
+
+    // Check if we already have initialization data in the cache
+    const cacheKey = `twitter_init:${twitterId}`;
+    const existingData =
+      CacheService.getInstance().get<TwitterInitializationData>(cacheKey);
+
+    if (existingData && existingData.status === "complete") {
+      console.log(
+        `[Initialize] Found completed initialization for user ${username}`
+      );
+      res.status(200).json({
+        message: "Initialization already complete",
+        smartAccount: existingData.smartAccount,
+        txHash: existingData.txHash,
+        tokenBalance: existingData.tokenBalance,
+      });
+      return;
+    }
+
+    // Initialize the data in the cache with pending status
+    const initData: TwitterInitializationData = {
+      twitterId,
+      username,
+      tokenId,
+      token,
+      status: "pending",
+      timestamp: Date.now(),
+    };
+
+    // Set with a longer TTL (1 hour) since initialization might take time
+    CacheService.getInstance().set(cacheKey, initData);
+
+    // Start the initialization process in the background
+    processInitialization(initData).catch((err) => {
+      console.error(
+        `[Initialize] Background process error for ${username}:`,
+        err
+      );
+      // Update cache with error information
+      const failedData =
+        CacheService.getInstance().get<TwitterInitializationData>(cacheKey);
+      if (failedData) {
+        failedData.status = "failed";
+        failedData.error = err.message || "Unknown error during initialization";
+        CacheService.getInstance().set(cacheKey, failedData);
+      }
+    });
+
+    // Immediately return success to keep the frontend responsive
+    res.status(202).json({
+      message: "Initialization started",
+      status: "pending",
+    });
+  } catch (error) {
+    console.error("[Initialize] Error:", error);
+    res.status(500).json({ error: "Failed to start initialization process" });
+  }
+};
+
+// Check initialization status handler
+const handleInitializationStatus = async (req: Request, res: Response) => {
+  try {
+    const { twitterId } = req.query;
+
+    if (!twitterId) {
+      res.status(400).json({ error: "Missing twitterId parameter" });
+      return;
+    }
+
+    const cacheKey = `twitter_init:${twitterId}`;
+    const data =
+      CacheService.getInstance().get<TwitterInitializationData>(cacheKey);
+
+    if (!data) {
+      res.status(404).json({ error: "Initialization data not found" });
+      return;
+    }
+
+    // Return current status
+    res.status(200).json({
+      status: data.status,
+      complete: data.status === "complete",
+      smartAccount: data.smartAccount,
+      txHash: data.txHash,
+      tokenBalance: data.tokenBalance,
+      error: data.error,
+    });
+  } catch (error) {
+    console.error("[Initialization Status] Error:", error);
+    res.status(500).json({ error: "Failed to retrieve initialization status" });
+  }
+};
+
+// Register the routes
+router.post("/initialize", handleInitialize);
+router.get("/initialization-status", handleInitializationStatus);
+
+// Background process to handle initialization
+async function processInitialization(
+  data: TwitterInitializationData
+): Promise<void> {
+  const cacheKey = `twitter_init:${data.twitterId}`;
+  const cacheService = CacheService.getInstance();
+
+  try {
+    console.log(
+      `[ProcessInit] Starting background initialization for ${data.username}`
+    );
+
+    // Step 1: Generate PKP
+    console.log(`[ProcessInit] Generating PKP for ${data.username}`);
+    data.status = "pkp_generated";
+    cacheService.set(cacheKey, data);
+
+    const v2ApiUrl = getCollablandApiUrl().replace("v1", "v2");
+    const client = axios.create({
+      baseURL: process.env.COLLABLAND_API_URL || "https://api.collab.land",
+      headers: {
+        "X-API-KEY": process.env.COLLABLAND_API_KEY || "",
+        "Content-Type": "application/json",
+      },
+      timeout: 30 * 1000, // 30 seconds timeout
+    });
+
+    // Add retry logic for PKP generation
+    let pkpAddress: string | undefined;
+    let pkpRetryCount = 0;
+    const pkpMaxRetries = 5;
+
+    while (!pkpAddress && pkpRetryCount < pkpMaxRetries) {
+      try {
+        console.log(
+          `[ProcessInit] Attempting to generate PKP (attempt ${pkpRetryCount + 1}/${pkpMaxRetries})`
+        );
+
+        // Submit the user operation to execute the nomination
+        const pkpResponse = await client.get(
+          `${v2ApiUrl}/platform/accounts?platform=twitter`,
+          {
+            headers: {
+              "X-ACCESS-TOKEN": data.token || "",
+              "X-API-KEY": process.env.COLLABLAND_API_KEY || "",
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+          }
+        );
+
+        if (pkpResponse.data && pkpResponse.data.pkpAddress) {
+          pkpAddress = pkpResponse.data.pkpAddress;
+          console.log(
+            `[ProcessInit] Successfully generated PKP address: ${pkpAddress}`
+          );
+          break;
+        } else {
+          console.warn(`[ProcessInit] PKP response missing pkpAddress`);
+          pkpRetryCount++;
+          if (pkpRetryCount < pkpMaxRetries) {
+            // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+            const backoffTime = Math.pow(2, pkpRetryCount) * 1000;
+            console.log(`[ProcessInit] Retrying in ${backoffTime}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, backoffTime));
+          }
+        }
+      } catch (error) {
+        pkpRetryCount++;
+        console.error(
+          `[ProcessInit] Error generating PKP (attempt ${pkpRetryCount}/${pkpMaxRetries}):`,
+          error
+        );
+
+        if (pkpRetryCount < pkpMaxRetries) {
+          // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+          const backoffTime = Math.pow(2, pkpRetryCount) * 1000;
+          console.log(`[ProcessInit] Retrying in ${backoffTime}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, backoffTime));
+        }
+      }
+    }
+
+    if (!pkpAddress) {
+      throw new Error(
+        `Failed to generate PKP - no address returned after ${pkpMaxRetries} attempts`
+      );
+    }
+
+    data.pkpAddress = pkpAddress;
+    console.log(`[ProcessInit] Generated PKP address: ${data.pkpAddress}`);
+
+    // Step 2: Get Smart Account
+    console.log(`[ProcessInit] Creating smart account for ${data.username}`);
+    data.status = "account_created";
+    cacheService.set(cacheKey, data);
+
+    // Add retry logic for account address calculation
+    let smartAccount: string | undefined;
+    let accountRetryCount = 0;
+    const accountMaxRetries = 5;
+
+    while (!smartAccount && accountRetryCount < accountMaxRetries) {
+      try {
+        // Use the proper method to get account address
+        // Call the API directly instead of using the service
+        console.log(
+          `[ProcessInit] Attempting to calculate account address (attempt ${accountRetryCount + 1}/${accountMaxRetries})`
+        );
+
+        const accountResponse = await axios.post<IAccountInfo>(
+          `${v2ApiUrl}/evm/calculateAccountAddress`,
+          {
+            platform: "twitter",
+            userId: data.twitterId,
+          },
+          {
+            headers: {
+              "X-API-KEY": process.env.COLLABLAND_API_KEY!,
+            },
+            // Add timeout to prevent hanging
+            timeout: 10000, // 10 seconds
+          }
+        );
+
+        // We need base smart account addresses
+        smartAccount = accountResponse.data.evm.find(
+          (account) => account.chainId === 8453
+        )?.address;
+
+        if (smartAccount) {
+          console.log(
+            `[ProcessInit] Successfully calculated account address: ${smartAccount}`
+          );
+          break;
+        } else {
+          console.warn(
+            `[ProcessInit] No account address found for chainId 8453`
+          );
+          accountRetryCount++;
+          if (accountRetryCount < accountMaxRetries) {
+            // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+            const backoffTime = Math.pow(2, accountRetryCount) * 1000;
+            console.log(`[ProcessInit] Retrying in ${backoffTime}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, backoffTime));
+          }
+        }
+      } catch (error) {
+        accountRetryCount++;
+        console.error(
+          `[ProcessInit] Error calculating account address (attempt ${accountRetryCount}/${accountMaxRetries}):`,
+          error
+        );
+
+        if (accountRetryCount < accountMaxRetries) {
+          // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+          const backoffTime = Math.pow(2, accountRetryCount) * 1000;
+          console.log(`[ProcessInit] Retrying in ${backoffTime}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, backoffTime));
+        }
+      }
+    }
+
+    if (!smartAccount) {
+      throw new Error(
+        `Failed to create smart account after ${accountMaxRetries} attempts`
+      );
+    }
+
+    data.smartAccount = smartAccount;
+    console.log(`[ProcessInit] Created smart account: ${data.smartAccount}`);
+
+    // Step 3: Send airdrop
+    console.log(`[ProcessInit] Sending airdrop to ${data.smartAccount}`);
+    data.status = "airdrop_sent";
+    cacheService.set(cacheKey, data);
+
+    // Get the private key from environment variable
+    const privateKey = process.env.PRIVATE_KEY;
+    if (!privateKey) {
+      throw new Error("Airdrop private key not configured");
+    }
+
+    // Connect to Base Sepolia
+    const provider = new ethers.JsonRpcProvider(
+      process.env.BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org"
+    );
+    const wallet = new ethers.Wallet(privateKey, provider);
+
+    // Create contract instance for the vote token
+    const voteTokenAddress = "0xb6a7325A1841f4097260599d76AaC8217e8C4762";
+    const tokenAbi = [
+      "function transfer(address to, uint256 amount) returns (bool)",
+      "function balanceOf(address account) view returns (uint256)",
+    ];
+    const tokenContract = new ethers.Contract(
+      voteTokenAddress,
+      tokenAbi,
+      wallet
+    );
+
+    // Amount to send (10 tokens with 18 decimals)
+    const amount = ethers.parseUnits("10", 18);
+
+    // Add retry logic for token transfer
+    let txHash: string | undefined;
+    let txRetryCount = 0;
+    const txMaxRetries = 5;
+
+    while (!txHash && txRetryCount < txMaxRetries) {
+      try {
+        console.log(
+          `[ProcessInit] Attempting to send tokens (attempt ${txRetryCount + 1}/${txMaxRetries})`
+        );
+
+        // Send the transaction
+        const tx = await tokenContract.transfer(data.smartAccount, amount);
+        console.log(`[ProcessInit] Transaction sent: ${tx.hash}`);
+
+        // Wait for transaction to be mined with timeout
+        const receipt = await Promise.race([
+          tx.wait(),
+          new Promise<null>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("Transaction confirmation timeout")),
+              60000
+            )
+          ),
+        ]);
+
+        if (receipt === null) {
+          throw new Error("Transaction confirmation timed out");
+        }
+
+        console.log(`[ProcessInit] Transaction confirmed: ${receipt.hash}`);
+        txHash = receipt.hash;
+        break;
+      } catch (error) {
+        txRetryCount++;
+        console.error(
+          `[ProcessInit] Error sending tokens (attempt ${txRetryCount}/${txMaxRetries}):`,
+          error
+        );
+
+        if (txRetryCount < txMaxRetries) {
+          // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+          const backoffTime = Math.pow(2, txRetryCount + 1) * 1000;
+          console.log(`[ProcessInit] Retrying in ${backoffTime}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, backoffTime));
+        }
+      }
+    }
+
+    if (!txHash) {
+      throw new Error(`Failed to send tokens after ${txMaxRetries} attempts`);
+    }
+
+    data.txHash = txHash;
+
+    // Small delay to ensure the blockchain has updated
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Add retry logic for balance check
+    let tokenBalance: string | undefined;
+    let balanceRetryCount = 0;
+    const balanceMaxRetries = 3;
+
+    while (balanceRetryCount < balanceMaxRetries) {
+      try {
+        console.log(
+          `[ProcessInit] Checking token balance (attempt ${balanceRetryCount + 1}/${balanceMaxRetries})`
+        );
+        const balance = await tokenContract.balanceOf(data.smartAccount);
+        tokenBalance = ethers.formatUnits(balance, 18);
+        console.log(`[ProcessInit] Token balance: ${tokenBalance}`);
+        break;
+      } catch (error) {
+        balanceRetryCount++;
+        console.error(
+          `[ProcessInit] Error checking balance (attempt ${balanceRetryCount}/${balanceMaxRetries}):`,
+          error
+        );
+
+        if (balanceRetryCount < balanceMaxRetries) {
+          // Linear backoff: 2s, 2s, 2s
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      }
+    }
+
+    data.tokenBalance = tokenBalance || "0";
+
+    // Step 4: Mark as complete
+    data.status = "complete";
+    data.timestamp = Date.now();
+    cacheService.set(cacheKey, data);
+
+    console.log(`[ProcessInit] Initialization complete for ${data.username}`);
+
+    // Update any votes that were submitted with a 'pending' smart account
+    if (data.smartAccount) {
+      try {
+        console.log(
+          `[ProcessInit] Updating votes with pending smart accounts for ${data.username}`
+        );
+        const supabaseService = await SupabaseService.getInstance();
+        await supabaseService.updateVoteSmartAccount(
+          data.username,
+          data.tokenId,
+          data.smartAccount
+        );
+      } catch (error) {
+        console.error(`[ProcessInit] Error updating pending votes:`, error);
+      }
+    }
+
+    // Check for and process any pending votes
+    if (data.smartAccount && data.token) {
+      console.log(
+        `[ProcessInit] Checking for pending votes for ${data.username}`
+      );
+      await processPendingVotes(
+        data.username,
+        data.tokenId,
+        data.smartAccount,
+        data.token
+      );
+    }
+  } catch (error) {
+    console.error(`[ProcessInit] Error for user ${data.username}:`, error);
+
+    // Update cache with error status
+    data.status = "failed";
+    data.error = error instanceof Error ? error.message : "Unknown error";
+    data.timestamp = Date.now();
+    cacheService.set(cacheKey, data);
+  }
+}
+
+// Function to check for and process pending votes after initialization completes
+async function processPendingVotes(
+  username: string,
+  tokenId: string,
+  smartAccount: string,
+  accessToken: string
+) {
+  try {
+    console.log(
+      `[PendingVotes] Checking for pending votes for ${username} with token ${tokenId}`
+    );
+
+    const cacheService = CacheService.getInstance();
+    const pendingVoteKey = `pending_vote:${username}:${tokenId}`;
+
+    // Check if there are any pending votes
+    const pendingVoteData = cacheService.get<PendingVoteData>(pendingVoteKey);
+
+    if (!pendingVoteData) {
+      console.log(`[PendingVotes] No pending votes found for ${username}`);
+      return;
+    }
+
+    console.log(`[PendingVotes] Found pending vote data:`, pendingVoteData);
+
+    // Get the vote ID and nominee votes
+    const { voteId, nomineeVotes } = pendingVoteData;
+
+    if (!voteId || !nomineeVotes) {
+      console.error(`[PendingVotes] Invalid pending vote data for ${username}`);
+      return;
+    }
+
+    console.log(`[PendingVotes] Processing pending vote with ID ${voteId}`);
+
+    // Submit the vote on-chain
+    try {
+      console.log(`[PendingVotes] Initializing VoteService`);
+      const voteService = VoteService.getInstance();
+
+      console.log(`[PendingVotes] Calling submitVoteOnChain with parameters:`, {
+        nomineeVotesCount: nomineeVotes.length,
+        smartAccount,
+        accessTokenPresent: !!accessToken,
+      });
+
+      const result = await voteService.submitVoteOnChain(
+        nomineeVotes,
+        smartAccount,
+        accessToken
+      );
+
+      console.log(`[PendingVotes] On-chain submission result:`, result);
+
+      if (result.success && result.txHash) {
+        console.log(
+          `[PendingVotes] Vote submitted on-chain successfully with transaction hash:`,
+          result.txHash
+        );
+
+        // Update the vote record with the transaction hash
+        console.log(
+          `[PendingVotes] Updating vote record with transaction hash`
+        );
+        const supabaseService = await SupabaseService.getInstance();
+
+        // Update both transaction hash and smart account since the original vote likely had 'pending'
+        await supabaseService.updateVoteTransaction(
+          voteId,
+          result.txHash,
+          smartAccount
+        );
+
+        console.log(
+          `[PendingVotes] Vote record updated with transaction hash and smart account`
+        );
+
+        // Remove the pending vote data from cache
+        cacheService.del(pendingVoteKey);
+        console.log(`[PendingVotes] Removed pending vote data from cache`);
+      } else {
+        console.error(
+          `[PendingVotes] Failed to submit vote on-chain:`,
+          result.error
+        );
+      }
+    } catch (error) {
+      console.error(`[PendingVotes] Error during on-chain submission:`, error);
+    }
+  } catch (error) {
+    console.error(`[PendingVotes] Error processing pending votes:`, error);
+  }
+}
 
 export default router;

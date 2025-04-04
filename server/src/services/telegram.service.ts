@@ -382,7 +382,7 @@ You can view the token page below (it takes a few minutes to be visible)`,
           };
 
           const twitterBotInfo = this.twitterService.me;
-          const twitterClient = this.twitterService.getScraper();
+          // const twitterClient = this.twitterService.getScraper();
           const ngrokURL = this.nGrokService.getUrl();
           console.log("ngrokURL:", ngrokURL);
           await ctx.reply(
@@ -407,25 +407,35 @@ You can view the token page below (it takes a few minutes to be visible)`,
           console.log("slug:", slug);
           const cardURL = `${ngrokURL}/auth/twitter/card/${slug}/index.html`;
           console.log("cardURL:", cardURL);
-          const twtRes = await twitterClient.sendTweet(
-            `I just minted a token on Base using Wow!\nThe ticker is $${tokenData.symbol}\nClaim early alpha here: ${cardURL}`
+          //           const twtRes = await twitterClient.sendTweet(
+          //             `Champion your favorite AI agents in the ultimate showdown! 🤖 \n
+          //               Using our new X Cards integration, you can nominate and vote for the most impressive AI agents building the future.\n
+          //               No wallet connection needed - just click to participate! \n
+          //               👇 Thread
+          // `
+          //           );
+          // if (twtRes.ok) {
+          //   const tweetId = (await twtRes.json()) as AnyType;
+          //   console.log("Tweet posted successfully:", tweetId);
+          //   const tweetURL = `https://twitter.com/${twitterBotInfo?.username}/status/${tweetId?.data?.create_tweet?.tweet_results?.result?.rest_id}`;
+          //   console.log("Tweet URL:", tweetURL);
+          //   await ctx.reply(
+          //     `Tweet posted successfully!\n\n` +
+          //       `🎉 Tweet details: ${tweetURL}`,
+          //     {
+          //       parse_mode: "HTML",
+          //     }
+          //   );
+          // } else {
+          //   console.error("Failed to post tweet:", await twtRes.json());
+          //   await ctx.reply("Failed to post tweet");
+          // }
+          await ctx.reply(
+            `Card posted successfully!\n\n` + `🎉 Card details: ${cardURL}`,
+            {
+              parse_mode: "HTML",
+            }
           );
-          if (twtRes.ok) {
-            const tweetId = (await twtRes.json()) as AnyType;
-            console.log("Tweet posted successfully:", tweetId);
-            const tweetURL = `https://twitter.com/${twitterBotInfo?.username}/status/${tweetId?.data?.create_tweet?.tweet_results?.result?.rest_id}`;
-            console.log("Tweet URL:", tweetURL);
-            await ctx.reply(
-              `Tweet posted successfully!\n\n` +
-                `🎉 Tweet details: ${tweetURL}`,
-              {
-                parse_mode: "HTML",
-              }
-            );
-          } else {
-            console.error("Failed to post tweet:", await twtRes.json());
-            await ctx.reply("Failed to post tweet");
-          }
         }
       });
     } catch (error) {

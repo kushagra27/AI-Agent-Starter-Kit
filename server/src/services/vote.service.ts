@@ -194,7 +194,7 @@ export class VoteService extends BaseService {
 
       // Added retry logic for submitting user operation
       let userOpHash = null;
-    //   let userOpData = null;
+      //   let userOpData = null;
       let submissionRetries = 0;
       const maxSubmissionRetries = 3;
       const retryDelay = 3000; // 3 seconds between retries
@@ -219,7 +219,7 @@ export class VoteService extends BaseService {
             JSON.stringify(data, null, 2)
           );
 
-        //   userOpData = data;
+          //   userOpData = data;
           userOpHash = data.userOperationHash;
 
           if (userOpHash) {

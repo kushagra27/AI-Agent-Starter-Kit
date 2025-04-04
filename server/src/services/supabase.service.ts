@@ -221,19 +221,35 @@ export class SupabaseService extends BaseService {
   /**
    * Update a vote record with transaction hash
    */
-  async updateVoteTransaction(voteId: string, txHash: string): Promise<void> {
+  async updateVoteTransaction(
+    voteId: string,
+    txHash: string,
+    smartAccount?: string
+  ): Promise<void> {
     try {
       console.log("[Supabase] Updating vote record with transaction hash:", {
         voteId,
         txHash,
+        smartAccount: smartAccount || "unchanged",
       });
+
+      const updateData: {
+        transaction_hash: string;
+        updated_at: string;
+        smart_account?: string;
+      } = {
+        transaction_hash: txHash,
+        updated_at: new Date().toISOString(),
+      };
+
+      // If smart account is provided, update it as well
+      if (smartAccount) {
+        updateData.smart_account = smartAccount;
+      }
 
       const { error } = await this.supabase
         .from("votes")
-        .update({
-          transaction_hash: txHash,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq("id", voteId);
 
       if (error) {
@@ -247,6 +263,73 @@ export class SupabaseService extends BaseService {
       console.log("[Supabase] Vote record updated with transaction hash");
     } catch (error) {
       console.error("[Supabase] Error in updateVoteTransaction:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update smart account for votes that were submitted with a pending smart account
+   */
+  async updateVoteSmartAccount(
+    twitterUsername: string,
+    tokenId: string,
+    smartAccount: string
+  ): Promise<void> {
+    try {
+      console.log("[Supabase] Updating smart account for votes:", {
+        twitterUsername,
+        tokenId,
+        smartAccount,
+      });
+
+      // Find votes with 'pending' smart account for this user and token
+      const { data: votes, error: queryError } = await this.supabase
+        .from("votes")
+        .select("id")
+        .eq("twitter_username", twitterUsername)
+        .eq("token_id", tokenId)
+        .eq("smart_account", "pending");
+
+      if (queryError) {
+        console.error(
+          "[Supabase] Error finding votes with pending smart account:",
+          queryError
+        );
+        throw queryError;
+      }
+
+      if (!votes || votes.length === 0) {
+        console.log("[Supabase] No votes found with pending smart account");
+        return;
+      }
+
+      console.log(
+        `[Supabase] Found ${votes.length} votes with pending smart account`
+      );
+
+      // Update each vote with the real smart account
+      for (const vote of votes) {
+        const { error: updateError } = await this.supabase
+          .from("votes")
+          .update({
+            smart_account: smartAccount,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", vote.id);
+
+        if (updateError) {
+          console.error(
+            `[Supabase] Error updating vote ${vote.id} with smart account:`,
+            updateError
+          );
+        } else {
+          console.log(
+            `[Supabase] Updated vote ${vote.id} with smart account ${smartAccount}`
+          );
+        }
+      }
+    } catch (error) {
+      console.error("[Supabase] Error in updateVoteSmartAccount:", error);
       throw error;
     }
   }

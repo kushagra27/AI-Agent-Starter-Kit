@@ -10,11 +10,11 @@ export async function sha256(str: string): Promise<ArrayBuffer> {
   return crypto.subtle.digest('SHA-256', data)
 }
 
-export function base64URLEncode(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  const base64 = btoa(String.fromCharCode(...bytes))
-  return base64
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '')
-} 
+// export function base64URLEncode(buffer: ArrayBuffer): string {
+//   const bytes = new Uint8Array(buffer)
+//   const base64 = btoa(String.fromCharCode(...bytes))
+//   return base64
+//     .replace(/\+/g, '-')
+//     .replace(/\//g, '_')
+//     .replace(/=+$/, '')
+// } 

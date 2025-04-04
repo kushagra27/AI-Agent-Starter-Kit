@@ -1,9 +1,22 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function InterstitialPage() {
+// Loading component to show while waiting for the main content
+function LoadingInterstitial() {
+  return (
+    <div className="flex items-center justify-center min-h-screen bg-white">
+      <div className="text-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#1DA1F2] border-t-transparent mx-auto mb-4" />
+        <p className="text-sm text-gray-600">Initializing authentication...</p>
+      </div>
+    </div>
+  );
+}
+
+// Component that uses searchParams and needs Suspense boundary
+function InterstitialContent() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -40,5 +53,14 @@ export default function InterstitialPage() {
         <p className="text-sm text-gray-600">Completing authentication...</p>
       </div>
     </div>
+  );
+}
+
+// Main page component with Suspense boundary
+export default function InterstitialPage() {
+  return (
+    <Suspense fallback={<LoadingInterstitial />}>
+      <InterstitialContent />
+    </Suspense>
   );
 }
