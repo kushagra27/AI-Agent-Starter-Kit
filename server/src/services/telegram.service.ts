@@ -38,6 +38,41 @@ import {
 // };
 
 // const __dirname = path.dirname(new URL(import.meta.url).pathname);
+
+interface EventInfo {
+  name: string;
+  url?: string;
+  description?: string;
+  image?: string;
+  location?: string;
+  date?: string;
+  time?: string;
+  category?: string;
+  hosted_by?: string;
+}
+
+interface EventQuery {
+  location?: string;
+  time?: string;
+  date_range_start?: string;
+  date_range_end?: string;
+  time_of_day?: string;
+  time_range_start?: string;
+  time_range_end?: string;
+  event_type?: string;
+  category?: string;
+  subcategory?: string;
+  attendees?: number | null;
+  accessibility?: string;
+  keywords?: string[];
+  preferences?: string[];
+  exclusions?: string[];
+  format?: string;
+  duration?: string;
+  language?: string;
+  original_query?: string;
+}
+
 export class TelegramService extends BaseService {
   private static instance: TelegramService;
   public bot: Bot;
@@ -473,23 +508,65 @@ export class TelegramService extends BaseService {
 
       this.bot.command("events", async (ctx) => {
         try {
+          // Parse the input query if provided
+
+          console.log("in events");
+
+          const query: EventQuery = {
+            location: "denver",
+            time: "tomorrow",
+            date_range_start: "2025-02-26",
+            date_range_end: "2025-02-26",
+            time_of_day: "daytime",
+            time_range_start: "09:00",
+            time_range_end: "18:00",
+            event_type: "conference",
+            category: "technology",
+            subcategory: "artificial intelligence",
+            attendees: null,
+            accessibility: "",
+            keywords: ["ai", "nft"],
+            preferences: [],
+            exclusions: [],
+            format: "in-person",
+            duration: "full day",
+            language: "english",
+            original_query: "in denver for ai and nft tomorrow",
+          };
+
           await ctx.reply("🔍 Fetching ETH Denver '25 Side Events...");
 
-          const events = await getEthDenverSideEventTriples();
+          const events = await getEthDenverSideEventTriples(query);
 
           if (!events || events.length === 0) {
-            await ctx.reply("❌ No events found");
+            await ctx.reply("❌ No events found matching your criteria");
             return;
           }
 
           // Format the events data for display
           let message = "✨ ETH Denver Events:\n\n";
 
-          events.forEach((event, index) => {
+          events.forEach((event: EventInfo, index: number) => {
             message += `🎯 Event ${index + 1}:\n`;
             message += `📍 ${event.name}\n`;
+
+            if (event.location) {
+              message += `📍 Location: ${event.location}\n`;
+            }
+            if (event.date) {
+              message += `📅 Date: ${event.date}\n`;
+            }
+            if (event.time) {
+              message += `⏰ Time: ${event.time}\n`;
+            }
+            if (event.category) {
+              message += `🏷️ Category: ${event.category}\n`;
+            }
+            if (event.hosted_by) {
+              message += `👥 Hosted by: ${event.hosted_by}\n`;
+            }
             if (event.url) {
-              message += `🌐 ${event.url}\n`;
+              message += `🌐 More info: ${event.url}\n`;
             }
             if (event.description) {
               message += `📝 ${event.description}\n`;
@@ -497,7 +574,15 @@ export class TelegramService extends BaseService {
             message += "\n";
           });
 
-          await ctx.reply(message);
+          // Split message if it's too long for Telegram
+          if (message.length > 4000) {
+            const chunks = message.match(/.{1,4000}/g) || [];
+            for (const chunk of chunks) {
+              await ctx.reply(chunk);
+            }
+          } else {
+            await ctx.reply(message);
+          }
         } catch (error) {
           console.error("Error in events command:", error);
           await ctx.reply(

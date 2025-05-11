@@ -1,5 +1,27 @@
 import { getGqlClient } from "./client.js";
 
+export interface EventQuery {
+  location?: string;
+  time?: string;
+  date_range_start?: string;
+  date_range_end?: string;
+  time_of_day?: string;
+  time_range_start?: string;
+  time_range_end?: string;
+  event_type?: string;
+  category?: string;
+  subcategory?: string;
+  attendees?: number | null;
+  accessibility?: string;
+  keywords?: string[];
+  preferences?: string[];
+  exclusions?: string[];
+  format?: string;
+  duration?: string;
+  language?: string;
+  original_query?: string;
+}
+
 // Type definitions based on Intuition's GraphQL schema
 export interface AtomValue {
   person?: {
@@ -616,108 +638,195 @@ export interface EventInfo {
   name: string;
   url?: string;
   description?: string;
+  location?: string;
+  date?: string;
+  time?: string;
+  category?: string;
+  hosted_by?: string;
+}
+
+interface ParsedTime {
+  start: string;
+  end?: string;
+  timezone?: string;
+}
+
+function parseEventTime(timeStr: string): ParsedTime | undefined {
+  if (!timeStr || timeStr === "Not specified") return undefined;
+
+  // Remove any extra whitespace
+  timeStr = timeStr.trim();
+
+  // Split into parts (time and timezone)
+  const [times, timezone = "MST"] = timeStr.split(" MST");
+
+  // Split start and end times
+  const [startTime, endTime] = times.split(" - ").map((t) => t.trim());
+
+  return {
+    start: startTime,
+    ...(endTime && { end: endTime }),
+    timezone,
+  };
+}
+
+interface EventTripleResponse {
+  triples: Array<{
+    subject: {
+      label: string;
+      value: {
+        thing: {
+          name: string;
+          url: string;
+          description: string;
+        };
+      };
+    };
+  }>;
 }
 
 /**
  * Fetches and formats ETH Denver events from Intuition
  * @returns Promise resolving to array of event names and URLs
  */
-export async function getEthDenverSideEventTriples(): Promise<EventInfo[]> {
+export async function getEthDenverSideEventTriples(
+  query?: EventQuery
+): Promise<EventInfo[]> {
   const client = getGqlClient();
 
-  const query = `
-    query GetTriples($where: triples_bool_exp!) {
-      triples(
-        where: $where, 
-        order_by: {block_timestamp: desc}
-      ) {
-        subject {
-          label
-          value {
-            thing {
-              name
-              url
-              description
-            }
-            organization {
-              name
-              url
-              description
-            }
-          }
-        }
-        object {
-          label
-          value {
-            thing {
-              name
-              url
-              description
-            }
-            organization {
-              name
-              url
-              description
-            }
+  console.log("Incoming query parameters:", JSON.stringify(query, null, 2));
+
+  interface DescriptionFilter {
+    _is_null?: boolean;
+    _ilike?: string;
+  }
+
+  // Build dynamic where conditions based on query parameters
+  const whereConditions = {
+    _and: [
+      {
+        object_id: {
+          _eq: "16361",
+        },
+      },
+      {
+        subject: {
+          value: {
+            thing: {
+              description: { _is_null: false } as DescriptionFilter,
+            },
+          },
+        },
+      },
+    ],
+  };
+
+  // Add date filter if provided
+  if (query?.date_range_start) {
+    console.log("Adding date filter for:", query.date_range_start);
+
+    // Parse the date from yyyy-mm-dd format
+    const [year, month, day] = query.date_range_start.split("-").map(Number);
+    const dateObj = new Date(year, month - 1, day);
+    const monthName = dateObj.toLocaleString("en-US", { month: "long" });
+
+    whereConditions._and.push({
+      subject: {
+        value: {
+          thing: {
+            description: {
+              _ilike: `%date:${monthName} ${day}%`,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  console.log(
+    "Final where conditions:",
+    JSON.stringify(whereConditions, null, 2)
+  );
+
+  const gqlQuery = `query FindAtoms($where: triples_bool_exp) {
+    triples(
+      where: $where,
+      limit: 5,
+      order_by: { block_timestamp: desc }
+    ) {
+      subject {
+        label
+        value {
+          thing {
+            name
+            url
+            description
           }
         }
       }
     }
-  `;
+  }`;
 
-  const variables = {
-    where: {
-      _or: [
-        {
-          subject: {
-            _or: [
-              { label: { _ilike: "%ETH Denver%" } },
-              { value: { thing: { name: { _ilike: "%ETH Denver%" } } } },
-              { value: { organization: { name: { _ilike: "%ETH Denver%" } } } },
-            ],
-          },
-        },
-        {
-          object: {
-            _or: [
-              { label: { _ilike: "%ETH Denver%" } },
-              { value: { thing: { name: { _ilike: "%ETH Denver%" } } } },
-              { value: { organization: { name: { _ilike: "%ETH Denver%" } } } },
-            ],
-          },
-        },
-      ],
-    },
-  };
-
-  const response = await client.request<TripleResponse>(query, variables);
-
-  // Extract and format event information
-  const events = response.triples.map((triple) => {
-    // Determine which part (subject or object) contains the event info
-    const eventNode =
-      triple.subject.value.thing?.name?.includes("ETH Denver") ||
-      triple.subject.value.organization?.name?.includes("ETH Denver")
-        ? triple.subject
-        : triple.object;
-
-    // Get event details from either thing or organization
-    const thingInfo = eventNode.value.thing;
-    const orgInfo = eventNode.value.organization;
-
-    return {
-      name: thingInfo?.name || orgInfo?.name || eventNode.label,
-      url: thingInfo?.url || orgInfo?.url,
-      description: thingInfo?.description || orgInfo?.description,
-    };
+  console.log("Executing GraphQL query with variables:", {
+    where: whereConditions,
   });
 
-  // Remove duplicates and get random 5
-  const uniqueEvents = Array.from(
-    new Map(events.map((event) => [event.name, event])).values()
-  )
-    .sort(() => Math.random() - 0.5)
-    .slice(0, 5);
+  try {
+    const response = await client.request<EventTripleResponse>(gqlQuery, {
+      where: whereConditions,
+    });
 
-  return uniqueEvents;
+    console.log("GraphQL response:", JSON.stringify(response, null, 2));
+
+    if (!response.triples! || response.triples.length === 0) {
+      console.log("No events found in response");
+      return [];
+    }
+
+    const mappedResults = response.triples.map((triple) => {
+      const thing = triple.subject.value.thing;
+
+      // Parse the structured description
+      const descriptionParts = thing.description.split(";").reduce(
+        (acc, part) => {
+          const [key, value = ""] = part.split(":").map((s) => s.trim());
+          // Remove any markdown formatting from description
+          if (key === "description") {
+            acc[key] = value.replace(/\*\*/g, "").replace(/\[|\]/g, "");
+          } else {
+            acc[key] = value;
+          }
+          return acc;
+        },
+        {} as Record<string, string>
+      );
+
+      // Parse the time
+      const parsedTime = parseEventTime(descriptionParts.time);
+      const formattedTime = parsedTime
+        ? `${parsedTime.start}${parsedTime.end ? ` - ${parsedTime.end}` : ""} ${parsedTime.timezone}`
+        : undefined;
+
+      // Process URL - only include if it's a complete URL
+      const url = thing.url.startsWith("http") ? thing.url : undefined;
+
+      // Local filtering can be added here for other criteria
+      return {
+        name: thing.name || triple.subject.label,
+        ...(url && { url }), // Only include url if it's valid
+        description: descriptionParts.description,
+        location: descriptionParts.location,
+        date: descriptionParts.date,
+        time: formattedTime,
+        category: descriptionParts.category,
+        hosted_by: descriptionParts.hosted_by,
+      };
+    });
+
+    console.log("Mapped results:", JSON.stringify(mappedResults, null, 2));
+    return mappedResults;
+  } catch (error) {
+    console.error("GraphQL query error:", error);
+    throw error;
+  }
 }

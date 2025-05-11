@@ -13,7 +13,10 @@ import { parseUnits } from "ethers";
 import * as path from "path";
 import * as fs from "fs/promises";
 import { AnyType } from "src/utils.js";
-import { getEthDenverSideEventTriples } from "../utils/Intuition/queries.js";
+import {
+  getEthDenverSideEventTriples,
+  EventQuery,
+} from "../utils/Intuition/queries.js";
 
 //FIXME: Remove once Nevermined SDK is updated
 interface NeverminedStep extends Step {
@@ -243,6 +246,7 @@ export class NeverminedService extends BaseService {
 
   private processQuery(payments: Payments) {
     return async (data: AnyType) => {
+      console.log("[NeverminedService] Processing data: ", data);
       const eventData = JSON.parse(data);
       console.log("[NeverminedService] Event data: ", eventData);
       // await this.telegramService?.bot.api.sendMessage(
@@ -287,11 +291,14 @@ export class NeverminedService extends BaseService {
 
           await payments.query.logTask({
             task_id: step.task_id,
-            level: createResult.status === 201 ? "info" : "error",
+            level:
+              (createResult as unknown as { status: number }).status === 201
+                ? "info"
+                : "error",
             message:
-              createResult.status === 201
+              (createResult as unknown as { status: number }).status === 201
                 ? "Steps created successfully."
-                : `Error creating steps: ${JSON.stringify(createResult.data)}`,
+                : `Error creating steps: ${JSON.stringify((createResult as unknown as { data: string }).data)}`,
           });
           // await this.telegramService?.bot.api.sendMessage(
           //   "-4729581369",
@@ -316,16 +323,17 @@ export class NeverminedService extends BaseService {
 
           try {
             // Fetch real data from Intuition
-            const events = await getEthDenverSideEventTriples();
+
+            console.log("[NeverminedService] Step input query: ", step);
+
+            const query = JSON.parse(step.input_query) as EventQuery;
+
+            const events = await getEthDenverSideEventTriples(query);
 
             // Add query context to the output
             const formattedData = {
               query: step.input_query,
-              events: events.map((event) => ({
-                name: event.name,
-                url: event.url || null,
-                description: event.description || null,
-              })),
+              events: events.map((event) => ({ ...event })),
               timestamp: new Date().toISOString(),
               total: events.length,
             };
@@ -478,47 +486,50 @@ export class NeverminedService extends BaseService {
     }
   }
 
-  public async submitTask(
-    //FIXME: Remove after demo, should be dynamic
-    agentDID = "did:nv:ed26319e8551d5578b09563c3261df7cd4e3b1f4130434d04478a036c29e4403",
-    planDID = "did:nv:95933c24a7f3c181b62b2ee91d7b7e6ec0fce5430a0fd19f4cf5c4dc864efb6d",
-    query = `hello-demo-agent-${Date.now()}`,
-    callback?: (data: string) => Promise<void>
-  ): Promise<void> {
-    if (!this.client) {
-      throw new Error("NeverminedService not started");
-    }
-    console.log(
-      `[NeverminedService] Submitting task: agentDID: ${agentDID}, planDID: ${planDID}, query: ${query}`
-    );
-    const balance = await this.getPlanCreditBalance(planDID);
-    console.log(`Plan: ${planDID}\nBalance: ${JSON.stringify(balance)}`);
-    if (balance <= BigInt(0)) {
-      throw new Error("Insufficient balance");
-    }
-    const accessConfig =
-      await this.client.query.getServiceAccessConfig(agentDID);
-    console.log(
-      `[NeverminedService] Access config: ${JSON.stringify(accessConfig)}`
-    );
-    const taskCallback =
-      callback ??
-      (async (data: string) => {
-        console.log(`Received data:`);
-        const parsedData = JSON.parse(data) as NeverminedTask;
-        console.dir(parsedData, { depth: null });
-      });
-    const { data } = await this.client.query.createTask(
-      agentDID,
-      {
-        query,
-      },
-      accessConfig,
-      taskCallback
-    );
-    console.log(`Task sent to agent: ${JSON.stringify(data)}`);
-    return data;
-  }
+  // public async submitTask(
+  //   //FIXME: Remove after demo, should be dynamic
+  //   agentDID = "did:nv:ed26319e8551d5578b09563c3261df7cd4e3b1f4130434d04478a036c29e4403",
+  //   planDID = "did:nv:95933c24a7f3c181b62b2ee91d7b7e6ec0fce5430a0fd19f4cf5c4dc864efb6d",
+  //   query = `hello-demo-agent-${Date.now()}`,
+  //   callback?: (data: string) => Promise<void>
+  // ): Promise<void> {
+  //   if (!this.client) {
+  //     throw new Error("NeverminedService not started");
+  //   }
+  //   console.log(
+  //     `[NeverminedService] Submitting task: agentDID: ${agentDID}, planDID: ${planDID}, query: ${query}`
+  //   );
+  //   const balance = await this.getPlanCreditBalance(planDID);
+  //   console.log(`Plan: ${planDID}\nBalance: ${JSON.stringify(balance)}`);
+  //   if (balance <= BigInt(0)) {
+  //     throw new Error("Insufficient balance");
+  //   }
+  //   const accessConfig =
+  //     await this.client.query.getServiceAccessConfig(agentDID);
+  //   console.log(
+  //     `[NeverminedService] Access config: ${JSON.stringify(accessConfig)}`
+  //   );
+  //   const taskCallback =
+  //     callback ??
+  //     (async (data: string) => {
+  //       console.log(`Received data:`);
+  //       const parsedData = JSON.parse(data) as NeverminedTask;
+  //       console.dir(parsedData, { depth: null });
+  //     });
+  //   const { data } = await this.client.query.createTask(
+  //     agentDID,
+  //     {
+  //       input_query: query,
+  //     },
+  //     accessConfig,
+  //     taskCallback
+  //   );
+  //   console.log(`Task sent to agent: ${JSON.stringify(data)}`);
+  //   if (!data) {
+  //     throw new Error("No data returned");
+  //   }
+  //   return data;
+  // }
 
   public async submitTaskDynamically(
     agentDID: string,
@@ -556,24 +567,32 @@ export class NeverminedService extends BaseService {
         const parsedData = JSON.parse(data) as NeverminedTask;
 
         if (parsedData.task_status === "Completed") {
-          const result = (await this.client?.query.getTaskWithSteps(
+          const result = await this.client?.query.getTaskWithSteps(
             agentDID,
             parsedData.task_id,
             accessConfig
-          )) || {
-            output: "No result",
-          };
+          );
 
           // Safely handle the Axios response
-          const resultData = "data" in result ? result.data : result;
+
+          if (!result) {
+            throw new Error("No result found");
+          }
+
+          if (!result.task) {
+            throw new Error("No task found");
+            return;
+          }
+
+          const resultData = result;
           console.log("Task results:", Object.keys(resultData));
 
           const output = {
-            task_id: resultData.task.task_id,
-            task_status: resultData.task.task_status,
-            output: resultData.task.output,
-            input_query: resultData.task.input_query,
-            cost: resultData.task.cost,
+            task_id: resultData.task?.task_id,
+            task_status: resultData.task?.task_status,
+            output: resultData.task?.output,
+            input_query: resultData.task?.input_query,
+            cost: resultData.task?.cost,
           };
 
           // Call the resultCallback if provided
@@ -587,13 +606,13 @@ export class NeverminedService extends BaseService {
     const { data } = await this.client.query.createTask(
       agentDID,
       {
-        query,
+        input_query: query,
       },
       accessConfig,
       taskCallback
     );
     console.log(`Task sent to agent: ${JSON.stringify(data)}`);
-    return data;
+    return;
   }
 
   /**
