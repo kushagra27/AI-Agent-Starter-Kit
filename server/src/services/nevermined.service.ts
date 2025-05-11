@@ -244,10 +244,6 @@ export class NeverminedService extends BaseService {
     return async (data: AnyType) => {
       const eventData = JSON.parse(data);
       console.log("[NeverminedService] Event data: ", eventData);
-      // await this.telegramService?.bot.api.sendMessage(
-      //   "-4729581369",
-      //   `Event data: ${JSON.stringify(eventData)}`
-      // );
       const step = (await payments.query.getStep(
         eventData.step_id
       )) as NeverminedStep;
@@ -272,14 +268,14 @@ export class NeverminedService extends BaseService {
             {
               step_id: fetchDataStepId,
               task_id: step.task_id,
-              predecessor: step.step_id, // "fetchData" follows "init"
+              predecessor: step.step_id,
               name: "fetchData",
               is_last: false,
             },
             {
               step_id: encryptDataStepId,
               task_id: step.task_id,
-              predecessor: fetchDataStepId, // "encryptData" follows "fetchData"
+              predecessor: fetchDataStepId,
               name: "encryptData",
               is_last: true,
             },
@@ -293,16 +289,15 @@ export class NeverminedService extends BaseService {
 
           await payments.query.logTask({
             task_id: step.task_id,
-            level: createResult.status === 201 ? "info" : "error",
+            level:
+              (createResult as unknown as { status: number }).status === 201
+                ? "info"
+                : "error",
             message:
-              createResult.status === 201
+              (createResult as unknown as { status: number }).status === 201
                 ? "Steps created successfully."
-                : `Error creating steps: ${JSON.stringify(createResult.data)}`,
+                : `Error creating steps: ${JSON.stringify((createResult as unknown as { data: string }).data)}`,
           });
-          // await this.telegramService?.bot.api.sendMessage(
-          //   "-4729581369",
-          //   `Steps created successfully.`
-          // );
 
           await payments.query.updateStep(step.did, {
             ...step,
@@ -319,10 +314,6 @@ export class NeverminedService extends BaseService {
             task_status: AgentExecutionStatus.In_Progress,
             message: `Step received ${step.name}, fetching data...`,
           });
-          // await this.telegramService?.bot.api.sendMessage(
-          //   "-4729581369",
-          //   `Step received ${step.name}, fetching data...`
-          // );
           const mockData = step.input_query ?? `step-1-mock-data-${Date.now()}`;
           await payments.query.logTask({
             level: "info",
@@ -349,10 +340,6 @@ export class NeverminedService extends BaseService {
             task_status: AgentExecutionStatus.In_Progress,
             message: `Step 1 completed, data fetched`,
           });
-          // await this.telegramService?.bot.api.sendMessage(
-          //   "-4729581369",
-          //   `Step 1 completed, data fetched`
-          // );
           return;
         }
         case "encryptData": {
@@ -407,10 +394,6 @@ export class NeverminedService extends BaseService {
             task_id: step.task_id,
             message: `Unknown step ${step.name}, Skipping...`,
           });
-          // await this.telegramService?.bot.api.sendMessage(
-          //   "-4729581369",
-          //   `Unknown step ${step.name}, Skipping...`
-          // );
           return;
         }
       }
@@ -461,47 +444,50 @@ export class NeverminedService extends BaseService {
     }
   }
 
-  public async submitTask(
-    //FIXME: Remove after demo, should be dynamic
-    agentDID = "did:nv:ed26319e8551d5578b09563c3261df7cd4e3b1f4130434d04478a036c29e4403",
-    planDID = "did:nv:95933c24a7f3c181b62b2ee91d7b7e6ec0fce5430a0fd19f4cf5c4dc864efb6d",
-    query = `hello-demo-agent-${Date.now()}`,
-    callback?: (data: string) => Promise<void>
-  ): Promise<void> {
-    if (!this.client) {
-      throw new Error("NeverminedService not started");
-    }
-    console.log(
-      `[NeverminedService] Submitting task: agentDID: ${agentDID}, planDID: ${planDID}, query: ${query}`
-    );
-    const balance = await this.getPlanCreditBalance(planDID);
-    console.log(`Plan: ${planDID}\nBalance: ${JSON.stringify(balance)}`);
-    if (balance <= BigInt(0)) {
-      throw new Error("Insufficient balance");
-    }
-    const accessConfig =
-      await this.client.query.getServiceAccessConfig(agentDID);
-    console.log(
-      `[NeverminedService] Access config: ${JSON.stringify(accessConfig)}`
-    );
-    const taskCallback =
-      callback ??
-      (async (data: string) => {
-        console.log(`Received data:`);
-        const parsedData = JSON.parse(data) as NeverminedTask;
-        console.dir(parsedData, { depth: null });
-      });
-    const { data } = await this.client.query.createTask(
-      agentDID,
-      {
-        query,
-      },
-      accessConfig,
-      taskCallback
-    );
-    console.log(`Task sent to agent: ${JSON.stringify(data)}`);
-    return data;
-  }
+  // public async submitTask(
+  //   //FIXME: Remove after demo, should be dynamic
+  //   agentDID = "did:nv:ed26319e8551d5578b09563c3261df7cd4e3b1f4130434d04478a036c29e4403",
+  //   planDID = "did:nv:95933c24a7f3c181b62b2ee91d7b7e6ec0fce5430a0fd19f4cf5c4dc864efb6d",
+  //   query = `hello-demo-agent-${Date.now()}`,
+  //   callback?: (data: string) => Promise<void>
+  // ): Promise<void> {
+  //   if (!this.client) {
+  //     throw new Error("NeverminedService not started");
+  //   }
+  //   console.log(
+  //     `[NeverminedService] Submitting task: agentDID: ${agentDID}, planDID: ${planDID}, query: ${query}`
+  //   );
+  //   const balance = await this.getPlanCreditBalance(planDID);
+  //   console.log(`Plan: ${planDID}\nBalance: ${JSON.stringify(balance)}`);
+  //   if (balance <= BigInt(0)) {
+  //     throw new Error("Insufficient balance");
+  //   }
+  //   const accessConfig =
+  //     await this.client.query.getServiceAccessConfig(agentDID);
+  //   console.log(
+  //     `[NeverminedService] Access config: ${JSON.stringify(accessConfig)}`
+  //   );
+  //   const taskCallback =
+  //     callback ??
+  //     (async (data: string) => {
+  //       console.log(`Received data:`);
+  //       const parsedData = JSON.parse(data) as NeverminedTask;
+  //       console.dir(parsedData, { depth: null });
+  //     });
+  //   const { data } = await this.client.query.createTask(
+  //     agentDID,
+  //     {
+  //       name: "fetchData",
+  //       query,
+  //       // @ts-expect-error Method will be used in future implementation
+  //       input_query: query,
+  //     },
+  //     accessConfig,
+  //     taskCallback
+  //   );
+  //   console.log(`Task sent to agent: ${JSON.stringify(data)}`);
+  //   return;
+  // }
 
   public async submitTaskDynamically(
     agentDID: string,
@@ -539,16 +525,18 @@ export class NeverminedService extends BaseService {
         const parsedData = JSON.parse(data) as NeverminedTask;
 
         if (parsedData.task_status === "Completed") {
-          const result = (await this.client?.query.getTaskWithSteps(
+          const result = await this.client?.query.getTaskWithSteps(
             agentDID,
             parsedData.task_id,
             accessConfig
-          )) || {
-            output: "No result",
-          };
+          );
 
-          // Safely handle the Axios response
-          const resultData = "data" in result ? result.data : result;
+          if (!result) {
+            throw new Error("Task not found");
+            return;
+          }
+
+          const resultData = result;
           console.log("Task results:", Object.keys(resultData));
 
           const output = {
@@ -559,7 +547,6 @@ export class NeverminedService extends BaseService {
             cost: resultData.task.cost,
           };
 
-          // Call the resultCallback if provided
           if (resultCallback) {
             await resultCallback(output);
           }
@@ -570,13 +557,15 @@ export class NeverminedService extends BaseService {
     const { data } = await this.client.query.createTask(
       agentDID,
       {
-        query,
+        name: "fetchData",
+        // query,
+        input_query: query,
       },
       accessConfig,
       taskCallback
     );
     console.log(`Task sent to agent: ${JSON.stringify(data)}`);
-    return data;
+    return;
   }
 
   /**

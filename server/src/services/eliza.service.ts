@@ -162,6 +162,28 @@ Thread of Tweets You Are Replying To:
 {{formattedConversation}}
 ` + messageCompletionFooter;
 
+interface ParsedEventQuery {
+  location: string;
+  time: string;
+  date_range_start: string;
+  date_range_end: string;
+  time_of_day: string;
+  time_range_start: string; // 24-hour format HH:mm
+  time_range_end: string; // 24-hour format HH:mm
+  event_type: string;
+  category: string;
+  subcategory: string;
+  attendees: number | null;
+  accessibility: string;
+  keywords: string[];
+  preferences: string[];
+  exclusions: string[];
+  format: "in-person" | "online" | "hybrid";
+  duration: string;
+  language: string;
+  original_query: string;
+}
+
 export class MessageManager {
   public bot: Bot<Context>;
   private runtime: IAgentRuntime;
@@ -335,6 +357,101 @@ export class MessageManager {
     });
     elizaLogger.debug("[_generateResponse] check4");
     return response;
+  }
+
+  /**
+   * Handles a custom message and generates a response using the LLM
+   * @param message Custom message to process
+   * @param options Optional configuration for message handling
+   * @returns Promise<Content | null> The generated response
+   */
+  public async handleCustomMessage(
+    message: {
+      text: string;
+      source: string;
+    },
+    options: {
+      userId?: string;
+      userName?: string;
+      roomId?: string;
+      messageId?: string;
+      template?: string;
+    } = {}
+  ): Promise<Content | null> {
+    try {
+      // Generate or use provided IDs
+      const userId = stringToUuid(options.userId || "system");
+      const userName = options.userName || "System";
+      const roomId = stringToUuid(options.roomId || "custom-room");
+      const messageId = stringToUuid(
+        options.messageId || `custom-${Date.now()}`
+      );
+      const agentId = this.runtime.agentId;
+
+      // Ensure connection exists
+      await this.runtime.ensureConnection(
+        userId,
+        roomId,
+        userName,
+        userName,
+        message.source
+      );
+
+      // Create content object
+      const content: Content = {
+        text: message.text,
+        source: message.source,
+      };
+
+      // Create and store memory
+      const memory = await this.runtime.messageManager.addEmbeddingToMemory({
+        id: messageId,
+        agentId,
+        userId,
+        roomId,
+        content,
+        createdAt: Date.now(),
+      });
+
+      await this.runtime.messageManager.createMemory(memory, true);
+
+      // Update state with the new memory
+      let state = await this.runtime.composeState(memory);
+      state = await this.runtime.updateRecentMessageState(state);
+
+      // Generate context using provided template or default
+      const context = composeContext({
+        state,
+        template: options.template || telegramMessageHandlerTemplate,
+      });
+
+      // Generate response
+      const response = await this._generateResponse(memory, state, context);
+
+      console.log("response", response);
+
+      if (response) {
+        // Update state after response
+        state = await this.runtime.updateRecentMessageState(state);
+
+        // Process any resulting actions
+        // const responseMemory: Memory = {
+        //   id: stringToUuid(`response-${Date.now()}`),
+        //   agentId,
+        //   userId,
+        //   roomId,
+        //   content: response,
+        //   createdAt: Date.now(),
+        // };
+
+        // await this.runtime.processActions(memory, [responseMemory], state);
+      }
+
+      return response;
+    } catch (error) {
+      elizaLogger.error("[handleCustomMessage] Error:", error);
+      throw error;
+    }
   }
 
   // Main handler for incoming messages
@@ -647,6 +764,242 @@ export class ElizaService extends BaseService {
       elizaLogger.info("Eliza service stopped");
     } catch (error) {
       console.error("Error stopping Eliza service:", error);
+    }
+  }
+
+  /**
+   * Parses an event search query using the AI agent to extract structured information
+   * @param query The raw search query from user
+   * @returns Parsed query with location and time information
+   */
+  public async parseEventQuery(
+    query: string,
+    messageTimestamp: Date
+  ): Promise<ParsedEventQuery> {
+    try {
+      const response = await this.messageManager.handleCustomMessage(
+        {
+          text: query,
+          source: "event-parser",
+        },
+        {
+          userId: "event-parser",
+          roomId: "event-parsing",
+          template: `# Task: Parse Event Search Query
+
+You are an AI assistant specializing in parsing natural language event queries into structured data. Your task is to extract detailed event search parameters from user queries, no matter how they are phrased.
+
+Message Time: ${messageTimestamp.toString()}
+Local Time: ${messageTimestamp.toLocaleTimeString()}
+UTC Time: ${messageTimestamp.toUTCString()}
+Timezone Offset: ${messageTimestamp.getTimezoneOffset() / -60}
+Query to parse: "${query}"
+
+Instructions:
+1. Extract ALL possible event-related information from the query
+2. Return a flat JSON object (avoid nested structures)
+3. Include ONLY the extracted data, no explanations
+4. Use consistent date and time formats
+5. Calculate all relative times from the message timestamp above, respecting timezone
+6. Maintain all fields in every response
+
+Time Processing Rules:
+- Use message timestamp as reference point for all relative times
+- Account for timezone offset in all calculations
+- "now" = message timestamp + 30 mins
+- "today" = calendar date of message in local timezone
+- "tomorrow" = message date + 1 day in local timezone
+- "this weekend" = next Saturday and Sunday from message date
+- "next week" = 7 days from message date
+- If no specific time mentioned:
+  * For today: 
+    - If message time < 17:00: Use next round hour from message time
+    - If message time >= 17:00: Use 19:00-22:00
+  * For future dates: Use 09:00-18:00
+  * For immediate events: Round message time + 30 mins to next 30 min interval
+- Round start times to next 30-minute interval from message time
+- Ensure minimum 30 mins buffer from message time
+- Duration defaults:
+  * Classes/Workshops: 1 hour
+  * Concerts/Shows: 2-3 hours
+  * Meetups: 1-2 hours
+  * Conferences: Full day
+
+Example Queries and Their Parsed Results:
+
+Query 1: "Find events now" (Message Time: Tue Feb 25 2025 19:03:28 GMT+0400)
+{
+  "location": "local",
+  "time": "now",
+  "date_range_start": "2025-02-25",
+  "date_range_end": "2025-02-25",
+  "time_of_day": "evening",
+  "time_range_start": "19:30",
+  "time_range_end": "20:30",
+  "event_type": "general",
+  "category": "",
+  "subcategory": "",
+  "attendees": null,
+  "accessibility": "",
+  "keywords": ["immediate"],
+  "preferences": ["immediate start"],
+  "exclusions": [],
+  "format": "in-person",
+  "duration": "1 hour",
+  "language": "english",
+  "original_query": "Find events now"
+}
+
+Query 2: "Anything happening today" (Message Time: Tue Feb 25 2025 19:03:28 GMT+0400)
+{
+  "location": "local",
+  "time": "today evening",
+  "date_range_start": "2025-02-25",
+  "date_range_end": "2025-02-25",
+  "time_of_day": "evening",
+  "time_range_start": "19:30",
+  "time_range_end": "22:00",
+  "event_type": "general",
+  "category": "",
+  "subcategory": "",
+  "attendees": null,
+  "accessibility": "",
+  "keywords": ["today", "evening"],
+  "preferences": ["evening events"],
+  "exclusions": [],
+  "format": "in-person",
+  "duration": "",
+  "language": "english",
+  "original_query": "Anything happening today"
+}
+
+Query 3: "near downtown denver today for ai" (Message Time: Tue Feb 25 2025 19:03:28 GMT+0400)
+{
+  "location": "downtown denver",
+  "time": "today evening",
+  "date_range_start": "2025-02-25",
+  "date_range_end": "2025-02-25",
+  "time_of_day": "evening",
+  "time_range_start": "19:30",
+  "time_range_end": "21:30",
+  "event_type": "meetup",
+  "category": "technology",
+  "subcategory": "artificial intelligence",
+  "attendees": null,
+  "accessibility": "",
+  "keywords": ["ai", "technology", "denver"],
+  "preferences": ["evening events"],
+  "exclusions": [],
+  "format": "in-person",
+  "duration": "2 hours",
+  "language": "english",
+  "original_query": "near downtown denver today for ai"
+}
+
+Remember:
+- Keep the JSON structure flat (no nested objects)
+- Use null for unknown numeric values
+- Use empty strings for unknown text values
+- Use empty arrays [] for unknown array values
+- Use consistent date formats (YYYY-MM-DD)
+- Use 24-hour time format (HH:mm)
+- All times must be relative to the message timestamp
+- Account for timezone offset in all calculations
+- Round times to next 30-minute interval
+- Ensure minimum 30 mins buffer from message time
+- Use lowercase for all string values except proper nouns
+
+Parse the query now:`,
+        }
+      );
+
+      console.log(response);
+
+      if (!response?.location) {
+        throw new Error("Failed to parse event query");
+      }
+
+      // Clean up the response to extract just the JSON
+      // const cleanedResponse = response.text
+      //   // Remove any markdown code block markers
+      //   .replace(/```json\s*|\s*```/g, "")
+      //   // Remove any leading/trailing whitespace
+      //   .trim();
+
+      // elizaLogger.debug("[parseEventQuery] Cleaned response:", cleanedResponse);
+
+      const parsed = JSON.parse(JSON.stringify(response)) as ParsedEventQuery;
+
+      // Validate and provide defaults for required fields
+      const messageTime = messageTimestamp || new Date();
+
+      // Helper function to round to next 30 minutes
+      const roundToNext30Minutes = (date: Date) => {
+        const minutes = date.getMinutes();
+        const roundedMinutes = Math.ceil(minutes / 30) * 30;
+        const result = new Date(date);
+        result.setMinutes(roundedMinutes);
+        result.setSeconds(0);
+        result.setMilliseconds(0);
+        if (roundedMinutes === 60) {
+          result.setHours(result.getHours() + 1);
+          result.setMinutes(0);
+        }
+        return result;
+      };
+
+      // Calculate default start and end times
+      const defaultStartTime = roundToNext30Minutes(
+        new Date(messageTime.getTime() + 30 * 60000)
+      );
+
+      const defaultEndTime = new Date(defaultStartTime.getTime() + 60 * 60000);
+
+      // Helper function to format time in HH:mm
+      const formatTime = (date: Date) => {
+        return date.toTimeString().slice(0, 5);
+      };
+
+      // Determine time of day based on message hour
+      const getTimeOfDay = (hour: number) => {
+        if (hour < 12) return "morning";
+        if (hour < 17) return "afternoon";
+        if (hour < 21) return "evening";
+        return "night";
+      };
+
+      const validatedQuery: ParsedEventQuery = {
+        location: parsed.location || "local",
+        time: parsed.time || "today",
+        date_range_start:
+          parsed.date_range_start || messageTime.toISOString().split("T")[0],
+        date_range_end:
+          parsed.date_range_end || messageTime.toISOString().split("T")[0],
+        time_of_day: parsed.time_of_day || getTimeOfDay(messageTime.getHours()),
+        time_range_start:
+          parsed.time_range_start || formatTime(defaultStartTime),
+        time_range_end: parsed.time_range_end || formatTime(defaultEndTime),
+        event_type: parsed.event_type || "general",
+        category: parsed.category || "",
+        subcategory: parsed.subcategory || "",
+        attendees: parsed.attendees || null,
+        accessibility: parsed.accessibility || "",
+        keywords: Array.isArray(parsed.keywords) ? parsed.keywords : [],
+        preferences: Array.isArray(parsed.preferences)
+          ? parsed.preferences
+          : [],
+        exclusions: Array.isArray(parsed.exclusions) ? parsed.exclusions : [],
+        format: parsed.format || "in-person",
+        duration: parsed.duration || "",
+        language: parsed.language || "english",
+        original_query: query,
+      };
+
+      elizaLogger.debug("[parseEventQuery] Validated query:", validatedQuery);
+      return validatedQuery;
+    } catch (error) {
+      elizaLogger.error("[parseEventQuery] Error:", error);
+      throw error;
     }
   }
 }

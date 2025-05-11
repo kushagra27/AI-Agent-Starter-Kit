@@ -102,6 +102,11 @@ export class TelegramService extends BaseService {
         { command: "nevermined", description: "Execute a Nevermined action" },
         { command: "intuition", description: "Fetch an Intuition atom" },
         {
+          command: "find_events",
+          description:
+            "Finds events near you, usage /find_events near downtown happening today",
+        },
+        {
           command: "execute",
           description:
             "Find an agent, subscribe to its plans, submit a task to it, usage /execute <task_name> <additional_query>",
@@ -341,9 +346,21 @@ export class TelegramService extends BaseService {
           // Step 5: Submit the task
           await ctx.reply("📤 Submitting task to agent...");
 
+          // const tokenSwapData = {
+          //   amount: "0.1",
+          //   from_token: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+          //   from_chain_id: "42161",
+          //   to_token: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+          //   to_chain_id: "42161",
+          //   sender: "0x2E46AFE76cd64c43293c19253bcd1Afe2262dEfF",
+          // };
+
+          // const tokenSwapDataString = JSON.stringify(tokenSwapData);
+
           await this.neverminedService?.submitTaskDynamically(
             agentDID,
             planDID,
+            // tokenSwapDataString,
             query,
             undefined,
             async (result) => {
@@ -465,6 +482,195 @@ export class TelegramService extends BaseService {
           );
         }
       });
+
+      this.bot.command("find_events", async (ctx) => {
+        try {
+          const query = ctx.message?.text.split("/find_events ")[1];
+          const messageTimestamp = ctx.message?.date
+            ? new Date(ctx.message.date * 1000)
+            : new Date();
+          console.log(`Query received at: ${messageTimestamp.toISOString()}`);
+
+          if (!query) {
+            await ctx.reply(
+              "Please provide a search query. Usage: /find_events <location> happening <time>\n" +
+                "Example: /find_events near downtown happening today"
+            );
+            return;
+          }
+
+          await ctx.reply(
+            `🔍 Analyzing your query: "${query} at ${messageTimestamp}"`
+          );
+
+          // Use Eliza to parse the query
+          const parsedQuery = await this.elizaService.parseEventQuery(
+            query,
+            messageTimestamp
+          );
+
+          console.log("Parsed query:", parsedQuery);
+
+          // await ctx.reply(
+          //   `📋 Parsed Query Details:\n` +
+          //     `📍 Location: ${parsedQuery.location}\n` +
+          //     `⏰ Time: ${parsedQuery.time}\n` +
+          //     (parsedQuery.additionalContext?.eventType
+          //       ? `🎯 Event Type: ${parsedQuery.additionalContext.eventType}\n`
+          //       : "") +
+          //     (parsedQuery.additionalContext?.preferences?.length
+          //       ? `🔍 Preferences: ${parsedQuery.additionalContext.preferences.join(", ")}\n`
+          //       : "")
+          // );
+
+          const primaryFunction = "events";
+
+          const agents = await findRelevantAgents(primaryFunction);
+
+          if (agents.length === 0) {
+            await ctx.reply("❌ No agents found that can handle this task.");
+            return;
+          }
+
+          // Display found agents grouped by function
+          const grouped = groupAgentsByFunction(agents);
+          let message = `✨ Found ${agents.length} relevant agents:\n\n`;
+          grouped.forEach((agents, func) => {
+            message += `🔹 ${func}:\n`;
+            agents.forEach((agent) => {
+              message += `  • ${agent.name}\n`;
+            });
+            message += "\n";
+          });
+          await ctx.reply(message);
+
+          // Step 2: Fetch Nevermined info for each agent and filter valid ones
+          await ctx.reply("🔄 Verifying agent credentials...");
+          const validAgents = [];
+
+          for (const agent of agents) {
+            const agentInfo = await getAgentNeverminedData(agent.name);
+            if (agentInfo.agentId && agentInfo.planId) {
+              validAgents.push({
+                ...agent,
+                neverminedInfo: agentInfo,
+              });
+            }
+          }
+
+          if (validAgents.length === 0) {
+            await ctx.reply(
+              "❌ No agents found with valid Nevermined credentials."
+            );
+            return;
+          }
+
+          // Step 3: Select the first valid agent (you could implement different selection strategies)
+          const selectedAgent = validAgents[0];
+          await ctx.reply(
+            `🤖 Selected agent: ${selectedAgent.name}\n` +
+              `📝 Description: ${selectedAgent.description || "No description available"}\n` +
+              `🎯 Primary function: ${selectedAgent.primaryFunction || "Unknown"}`
+          );
+
+          // Step 4: Purchase the agent's plan
+          await ctx.reply("💳 Purchasing agent's plan...");
+          const planDID = selectedAgent.neverminedInfo.planId!;
+          const agentDID = selectedAgent.neverminedInfo.agentId!;
+
+          const purchaseBalance =
+            await this.neverminedService?.purchasePlan(planDID);
+          if (!purchaseBalance) {
+            throw new Error("Failed to purchase plan");
+          }
+          await ctx.reply(
+            `✅ Plan purchased successfully! ${purchaseBalance} credits remaining`
+          );
+
+          console.log(agentDID, planDID, query);
+
+          // Step 5: Submit the task
+          await ctx.reply("📤 Submitting task to agent...");
+
+          await this.neverminedService?.submitTaskDynamically(
+            agentDID,
+            planDID,
+            JSON.stringify(parsedQuery),
+            undefined,
+            async (result) => {
+              try {
+                // Parse the output JSON
+                const eventData = JSON.parse(result.output);
+
+                if (!eventData.events || eventData.events.length === 0) {
+                  await ctx.reply(
+                    "😕 No events found matching your criteria.\n" +
+                      `💰 Search cost: ${result.cost} Credits`
+                  );
+                  return;
+                }
+
+                // Send summary
+                await ctx.reply(
+                  `✨ Found ${eventData.events.length} events near ${eventData.query.split(" near ")[1]}\n` +
+                    `🗓 As of: ${new Date(eventData.timestamp).toLocaleString()}\n` +
+                    `💰 Search cost: ${result.cost} Credits\n`
+                );
+
+                // Define event interface to fix any type
+                interface Event {
+                  name: string;
+                  description: string | null;
+                  url: string | null;
+                }
+
+                // Send each event as a separate message
+                for (const [
+                  index,
+                  event,
+                ] of eventData.events.entries() as Array<[number, Event]>) {
+                  const eventMessage =
+                    `🎉 Event ${index + 1}: ${event.name}\n` +
+                    (event.description ? `📝 ${event.description}\n` : "") +
+                    (event.url ? `🔗 More info: ${event.url}\n` : "");
+
+                  await ctx.reply(eventMessage, {
+                    parse_mode: "HTML",
+                    // disable_web_page_preview: false, // Enable URL previews for individual events
+                  });
+                }
+              } catch (error) {
+                console.error("Error formatting event results:", error);
+                // Fallback to raw output if parsing fails
+                await ctx.reply(
+                  `🤖 Task Results:\n\n` +
+                    `📝 Input: ${result.input_query}\n` +
+                    `✨ Output: ${result.output}\n` +
+                    `💰 Cost: ${result.cost} Credits`
+                );
+              }
+            }
+          );
+          console.log(agents);
+
+          // TODO: Uncomment and update this section once we have the correct agent/plan DIDs
+          // const agentDID = process.env.EVENTS_AGENT_DID;
+          // const planDID = process.env.EVENTS_PLAN_DID;
+
+          // if (!agentDID || !planDID) {
+          //   throw new Error("Events agent or plan DID not configured");
+          // }
+
+          // await this.neverminedService?.submitTaskDynamically(...)
+        } catch (error) {
+          console.error("Error in find_events command:", error);
+          await ctx.reply(
+            "❌ Error searching for events: " +
+              (error instanceof Error ? error.message : "Unknown error")
+          );
+        }
+      });
+
       this.bot.catch(async (error) => {
         console.error("Telegram bot error:", error);
       });
